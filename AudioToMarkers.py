@@ -566,9 +566,11 @@ class PasteCopiedBakedFCurveData(bpy.types.Operator):
         return cls.get_target_amount() > 0 and len(copied_keyframe_locations) > 0
         
     def modal(self, context, event):
-        if event.type == "ESC": return {"CANCELLED"}
+        if event.type == "ESC": 
+            self.cancel(context)
+            return {"CANCELLED"}
         if event.type in ["MIDDLEMOUSE", "WHEELDOWNMOUSE", "WHEELUPMOUSE"]: return {"PASS_THROUGH"}
-        if event.type == "TIMER" and self.counter % 15 == 0:
+        if event.type == "TIMER" and self.counter % 3 == 0:
             for fcurve in self.fcurves:
                 for i in range(self.progress_index, self.progress_index + self.chunk_size):
                     if i >= self.keyframe_amount: 
@@ -589,12 +591,12 @@ class PasteCopiedBakedFCurveData(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         self.progress_index = 0
         self.counter = 0
-        self.chunk_size = 100
+        self.chunk_size = 30
         self.fcurves = list(self.selected_unbaked_fcurves())
         self.keyframe_amount = len(copied_keyframe_locations)
         self.settings = context.scene.audio_to_markers
         self.settings.paste_keyframes_info_text = "{} of {} Keyframes".format(0, self.keyframe_amount)
-        self.timer = context.window_manager.event_timer_add(0.02, context.window)
+        self.timer = context.window_manager.event_timer_add(0.005, context.window)
         return {"RUNNING_MODAL"}
     
     def cancel(self, context):
