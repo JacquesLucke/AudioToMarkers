@@ -444,13 +444,20 @@ class UnbakeFCurve(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return True
+        return len(list(cls.fcurves_with_owners_to_unbake())) > 0
     
     def execute(self, context):
-        for object, fcurve in get_active_fcurves(return_owner = True):
+        for object, fcurve in self.fcurves_with_owners_to_unbake():
             if len(fcurve.sampled_points) > 0 and not fcurve.lock:
                 self.unbake_fcurve(object, fcurve)
         return {"FINISHED"}
+    
+    @classmethod
+    def fcurves_with_owners_to_unbake(cls):
+        for fcurve_with_owner in get_active_fcurves(return_owner = True):
+            fcurve = fcurve_with_owner[1]
+            if len(fcurve.sampled_points) > 0 and not fcurve.lock:
+                yield fcurve_with_owner
     
     def unbake_fcurve(self, object, fcurve):
         sample_locations = [(sample.co[0], sample.co[1]) for sample in fcurve.sampled_points]
