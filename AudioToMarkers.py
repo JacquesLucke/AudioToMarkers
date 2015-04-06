@@ -55,7 +55,7 @@ class AudioToMarkersSceneSettings(bpy.types.PropertyGroup):
     frequence_range = bpy.props.EnumProperty(name = "Frequence Range", items = frequence_range_items, default = "80 - 250 Hz", update = apply_frequence_range)
     low_frequence = bpy.props.FloatProperty(name = "Low Frequence", default = 80, update = frequence_range_changed)
     high_frequence = bpy.props.FloatProperty(name = "High Frequence", default = 250, update = frequence_range_changed)
-    insertion_range = bpy.props.EnumProperty(name = "Insertion Range", items = insertion_range_items, default = "Full Length")
+    insertion_range = bpy.props.EnumProperty(name = "Insertion Range", items = insertion_range_items, default = "From last Marker")
     bake_data = bpy.props.CollectionProperty(name = "Sound Bake Data", type = BakeData)
     info_text = bpy.props.StringProperty(name = "Info Text", default = "")
     hide_unused_fcurves = bpy.props.BoolProperty(name = "Hide Unused FCurves", description = "Show only the selected baked data", default = False, update = update_fcurve_visibility)
@@ -98,11 +98,13 @@ class AudioToMarkersPanel(bpy.types.Panel):
         row.prop(settings, "frequence_range", text = "")  
         row.operator("audio_to_markers.bake_sound", text = "Bake")
         
-        
         if show_advanced_settings:
             row = subcol.row(align = True)
             row.prop(settings, "low_frequence", text = "Low")
             row.prop(settings, "high_frequence", text = "High")
+        
+        selected_fcurves_amount = len(get_active_fcurves())
+        layout.operator("audio_to_markers.copy_to_fcurves", text = "Copy to {} Selected FCurves".format(selected_fcurves_amount))
             
         layout.separator()
         
@@ -298,76 +300,6 @@ class RemoveBakeData(bpy.types.Operator):
         context.scene.audio_to_markers.bake_data.clear()
         context.area.tag_redraw()
         return {"FINISHED"}
-            
-        
-    
-def only_select_fcurve(fcurve):
-    deselect_fcurves()
-    fcurve.select = True
-    
-def deselect_fcurves():
-    bpy.ops.object.select_all(action = "DESELECT")
-    try:
-        for fcurve in bpy.context.scene.animation_data.action.fcurves:
-            fcurve.select = False
-    except: pass 
- 
-def create_current_fcurve():
-    item = get_current_bake_item()
-    if not item:
-        item = new_bake_item_from_settings()
-    fcurve = get_fcurve_from_current_settings()
-    if not fcurve:
-        item.keyframe_insert("intensity", frame = 0)
-        fcurve = get_fcurve_from_current_settings()
-    return fcurve
-        
-def new_bake_item_from_settings():
-    settings = bpy.context.scene.audio_to_markers  
-    item = bpy.context.scene.audio_to_markers.bake_data.add()
-    item.path = settings.path
-    item.low = settings.low_frequence
-    item.high = settings.high_frequence      
-    return item           
-        
-def get_bake_data_fcurves():
-    fcurves = []
-    for i in range(len(bpy.context.scene.audio_to_markers.bake_data)):
-        fcurve = get_fcurve_from_bake_data_index(i)
-        if fcurve: fcurves.append(fcurve)
-    return fcurves
-        
-def get_fcurve_from_current_settings():
-    index = get_current_bake_item(return_type = "INDEX")
-    return get_fcurve_from_bake_data_index(index)
-
-def get_fcurve_from_bake_data_index(index):
-    return get_fcurve_from_path(bpy.context.scene, "audio_to_markers.bake_data[{}].intensity".format(index))
-
-def get_current_bake_item(return_type = "ITEM"):
-    current_item = None
-    index = -1
-    settings = bpy.context.scene.audio_to_markers  
-    for i, item in enumerate(settings.bake_data):
-        if is_item_equal_to_settings(item, settings):
-            current_item = item
-            index = i
-    if return_type == "ITEM": return current_item
-    else: return index
-        
-def is_item_equal_to_settings(item, settings):
-    return item.path == settings.path and \
-            item.low == settings.low_frequence and \
-            item.high == settings.high_frequence            
-    
-def get_fcurve_from_path(object, data_path):
-    try:
-        for fcurve in object.animation_data.action.fcurves:
-            if fcurve.data_path == data_path:
-                return fcurve
-    except: pass
-    return None
-           
            
         
 class InsertMarkers(bpy.types.Operator):
@@ -481,6 +413,106 @@ class CacheSounds(bpy.types.Operator):
             sound.use_memory_cache = True
         return {"FINISHED"}
         
+        
+class CopyToFCurves(bpy.types.Operator):
+    bl_idname = "audio_to_markers.copy_to_fcurves"
+    bl_label = "Copy to FCurves"
+    bl_description = "Copy the active sound data to all selected fcurves"
+    bl_options = {"REGISTER"}
+    
+    @classmethod
+    def poll(cls, context):
+        return True
+    
+    def execute(self, context):
+        bake_data = get_fcurve_from_current_settings()
+        if not bake_data: return {"CANCELLED"}
+        
+        for fcurve in get_active_fcurves():
+            for point in bake_data.sampled_points:
+                keyframe = fcurve.keyframe_points.insert(frame = point.co[0], value = point.co[1])
+                keyframe.interpolation = "LINEAR"
+        bpy.context.area.tag_redraw()
+        return {"FINISHED"}
+                
+                         
+                         
+
+def get_active_fcurves():
+    fcurves = []
+    for object in bpy.context.selected_objects:
+        try:
+            for fcurve in object.animation_data.action.fcurves:
+                if fcurve.select: fcurves.append(fcurve)
+        except: pass
+    return fcurves                      
+                         
+def only_select_fcurve(fcurve):
+    deselect_fcurves()
+    fcurve.select = True
+    
+def deselect_fcurves():
+    bpy.ops.object.select_all(action = "DESELECT")
+    try:
+        for fcurve in bpy.context.scene.animation_data.action.fcurves:
+            fcurve.select = False
+    except: pass 
+ 
+def create_current_fcurve():
+    item = get_current_bake_item()
+    if not item:
+        item = new_bake_item_from_settings()
+    fcurve = get_fcurve_from_current_settings()
+    if not fcurve:
+        item.keyframe_insert("intensity", frame = 0)
+        fcurve = get_fcurve_from_current_settings()
+    return fcurve
+        
+def new_bake_item_from_settings():
+    settings = bpy.context.scene.audio_to_markers  
+    item = bpy.context.scene.audio_to_markers.bake_data.add()
+    item.path = settings.path
+    item.low = settings.low_frequence
+    item.high = settings.high_frequence      
+    return item           
+        
+def get_bake_data_fcurves():
+    fcurves = []
+    for i in range(len(bpy.context.scene.audio_to_markers.bake_data)):
+        fcurve = get_fcurve_from_bake_data_index(i)
+        if fcurve: fcurves.append(fcurve)
+    return fcurves
+        
+def get_fcurve_from_current_settings():
+    index = get_current_bake_item(return_type = "INDEX")
+    return get_fcurve_from_bake_data_index(index)
+
+def get_fcurve_from_bake_data_index(index):
+    return get_fcurve_from_path(bpy.context.scene, "audio_to_markers.bake_data[{}].intensity".format(index))
+
+def get_current_bake_item(return_type = "ITEM"):
+    current_item = None
+    index = -1
+    settings = bpy.context.scene.audio_to_markers  
+    for i, item in enumerate(settings.bake_data):
+        if is_item_equal_to_settings(item, settings):
+            current_item = item
+            index = i
+    if return_type == "ITEM": return current_item
+    else: return index
+        
+def is_item_equal_to_settings(item, settings):
+    return item.path == settings.path and \
+            item.low == settings.low_frequence and \
+            item.high == settings.high_frequence            
+    
+def get_fcurve_from_path(object, data_path):
+    try:
+        for fcurve in object.animation_data.action.fcurves:
+            if fcurve.data_path == data_path:
+                return fcurve
+    except: pass
+    return None                         
                          
         
         
