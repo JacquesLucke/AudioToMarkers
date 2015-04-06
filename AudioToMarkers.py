@@ -79,10 +79,11 @@ class AudioToMarkersPanel(bpy.types.Panel):
         
         subcol = col.column(align = True)
         row = subcol.row(align = True)
-        row.prop(settings, "frequence_range", text = "")  
-        row.operator("audio_to_markers.bake_sound", icon = "RNDCURVE")
+        row.operator("audio_to_markers.bake_all_frequence_ranges", icon = "RNDCURVE")
         row.operator("audio_to_markers.remove_bake_data", icon = "X", text = "")
-        col.operator("audio_to_markers.bake_all_frequence_ranges")
+        row = subcol.row(align = True)
+        row.prop(settings, "frequence_range", text = "")  
+        row.operator("audio_to_markers.bake_sound", text = "Bake")
         
         if show_advanced_settings:
             row = subcol.row(align = True)
@@ -165,6 +166,8 @@ class RemoveSoundStrips(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene
+        if not scene.sequence_editor:
+            return {"CANCELLED"}
         sequences = scene.sequence_editor.sequences
         for item in context.scene.audio_to_markers.sound_strips:
             sequence = sequences.get(item.sequence_name)
@@ -236,6 +239,8 @@ class BakeSound(bpy.types.Operator):
     
     def execute(self, context):
         scene = context.scene
+        scene.sync_mode = "AUDIO_SYNC"
+        
         settings = scene.audio_to_markers
         self.low = settings.low_frequence
         self.high = settings.high_frequence
@@ -244,16 +249,18 @@ class BakeSound(bpy.types.Operator):
         frame_before = scene.frame_current
         if self.bake_from_start_frame:
             scene.frame_current = scene.frame_start
-            
+          
         fcurve = create_current_fcurve()
         only_select_fcurve(fcurve)
-        bpy.ops.graph.sound_bake(
-            filepath = self.path,
-            low = self.low,
-            high = self.high)
-            
+        try:
+            bpy.ops.graph.sound_bake(
+                filepath = self.path,
+                low = self.low,
+                high = self.high)
+        except: 
+            print("Could not bake the file")
+            return {"CANCELLED"}
         scene.frame_current = frame_before
-        scene.sync_mode = "AUDIO_SYNC"
         return {"FINISHED"}
     
     
