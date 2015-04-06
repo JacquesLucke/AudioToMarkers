@@ -29,9 +29,13 @@ def apply_frequence_range(self, context):
         settings.low_frequence, settings.high_frequence = frequence_range_dict[settings.frequence_range]
         
 def frequence_range_changed(self, context):
+    fcurves = get_bake_data_fcurves()
+    for fcurve in fcurves:
+        fcurve.hide = True
     fcurve = get_fcurve_from_current_settings()
     if fcurve:
-        only_select_fcurve(fcurve)        
+        only_select_fcurve(fcurve)     
+        fcurve.hide = False   
 
 class SoundStripData(bpy.types.PropertyGroup):
     sequence_name = bpy.props.StringProperty(name = "Name", default = "")
@@ -267,7 +271,7 @@ class BakeSound(bpy.types.Operator):
 class RemoveBakeData(bpy.types.Operator):
     bl_idname = "audio_to_markers.remove_bake_data"
     bl_label = "Remove Bake Data"
-    bl_description = ""
+    bl_description = "Remove baked sound"
     bl_options = {"REGISTER"}
     
     @classmethod
@@ -316,10 +320,19 @@ def new_bake_item_from_settings():
     item.high = settings.high_frequence      
     return item           
         
+def get_bake_data_fcurves():
+    fcurves = []
+    for i in range(len(bpy.context.scene.audio_to_markers.bake_data)):
+        fcurve = get_fcurve_from_bake_data_index(i)
+        if fcurve: fcurves.append(fcurve)
+    return fcurves
+        
 def get_fcurve_from_current_settings():
     index = get_current_bake_item(return_type = "INDEX")
-    fcurve = get_fcurve_from_path(bpy.context.scene, "audio_to_markers.bake_data[{}].intensity".format(index))
-    return fcurve
+    return get_fcurve_from_bake_data_index(index)
+
+def get_fcurve_from_bake_data_index(index):
+    return get_fcurve_from_path(bpy.context.scene, "audio_to_markers.bake_data[{}].intensity".format(index))
 
 def get_current_bake_item(return_type = "ITEM"):
     current_item = None
