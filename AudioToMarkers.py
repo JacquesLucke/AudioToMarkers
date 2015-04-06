@@ -83,18 +83,29 @@ class AudioManagerPanel(bpy.types.Panel):
         layout = self.layout
         settings = context.scene.audio_to_markers
         
-        row = layout.row(align = True)
-        row.prop(settings, "path", text = "Path")
+        col = layout.column(align = False)
+        
+        row = col.row(align = True)
+        row.prop(settings, "path", text = "Sound")
         row.operator("audio_to_markers.select_music_file", icon = "FILE_SOUND", text = "")
         
-        row = layout.row(align = True)
+        if settings.path == "": return
+        
+        row = col.row(align = True)
         row.operator("audio_to_markers.cache_sounds", icon = "LOAD_FACTORY", text = "")
         row.operator("audio_to_markers.load_into_sequence_editor", text = "Load Sound")
         row.operator("audio_to_markers.remove_sound_strips", icon = "X", text = "")
         
-        subcol = layout.column(align = True)
-        row = subcol.row(align = True)
+        col = layout.column(align = False)
         
+        subcol = col.column(align = True)
+        subcol.prop(settings, "frequence_range", text = "")  
+        subcol.prop(settings, "low_frequence", text = "Low")
+        subcol.prop(settings, "high_frequence", text = "High")
+          
+        subcol.operator("audio_to_markers.bake_sound", text = "Bake", icon = "RNDCURVE")
+        
+        row = col.row(align = True)
         if settings.hide_unused_fcurves: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_ON")
         else: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_OFF")
         
@@ -103,14 +114,6 @@ class AudioManagerPanel(bpy.types.Panel):
         
         row.operator("audio_to_markers.bake_all_frequence_ranges")
         row.operator("audio_to_markers.remove_bake_data", icon = "X", text = "")
-        
-        row = subcol.row(align = True)
-        row.prop(settings, "frequence_range", text = "")  
-        row.operator("audio_to_markers.bake_sound", text = "Bake")
-        
-        row = subcol.row(align = True)
-        row.prop(settings, "low_frequence", text = "Low")
-        row.prop(settings, "high_frequence", text = "High")
             
         if settings.bake_info_text != "":
             layout.label(settings.bake_info_text)
