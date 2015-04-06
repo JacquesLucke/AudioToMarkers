@@ -351,6 +351,17 @@ class FCurveToMakersPanel(bpy.types.Panel):
         row = col.row(align = True) 
         row.operator("audio_to_markers.insert_markers", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
+        
+        marker_amount = self.get_marker_amount_before_current_frame()
+        layout.label("Counter: {}".format(marker_amount))
+        
+    def get_marker_amount_before_current_frame(self):
+        amount = 0
+        scene = bpy.context.scene
+        for marker in scene.timeline_markers:
+            if marker.frame < scene.frame_current:
+                amount += 1
+        return amount       
      
      
 class InsertMarkers(bpy.types.Operator):
@@ -429,8 +440,10 @@ class InsertMarkers(bpy.types.Operator):
         return max(fcurve.evaluate(frame-0.5), fcurve.evaluate(frame-0.25), fcurve.evaluate(frame), fcurve.evaluate(frame+0.25))
             
     def insert_marker_at_frames(self, scene, frames):
+        marked_frames = [marker.frame for marker in scene.timeline_markers]
         for frame in frames:
-            scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)
+            if frame not in marked_frames:
+                scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)
             
      
 class RemoveAllMarkers(bpy.types.Operator):
