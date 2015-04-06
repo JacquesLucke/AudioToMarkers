@@ -29,13 +29,16 @@ def apply_frequence_range(self, context):
         settings.low_frequence, settings.high_frequence = frequence_range_dict[settings.frequence_range]
         
 def frequence_range_changed(self, context):
+    update_fcurve_visibility() 
+        
+def update_fcurve_visibility(self = None, context = None):
     fcurves = get_bake_data_fcurves()
     for fcurve in fcurves:
-        fcurve.hide = True
+        fcurve.hide = bpy.context.scene.audio_to_markers.hide_unused_fcurves
     fcurve = get_fcurve_from_current_settings()
     if fcurve:
         only_select_fcurve(fcurve)     
-        fcurve.hide = False   
+        fcurve.hide = False          
 
 class SoundStripData(bpy.types.PropertyGroup):
     sequence_name = bpy.props.StringProperty(name = "Name", default = "")
@@ -55,6 +58,7 @@ class AudioToMarkersSceneSettings(bpy.types.PropertyGroup):
     insertion_range = bpy.props.EnumProperty(name = "Insertion Range", items = insertion_range_items, default = "Full Length")
     bake_data = bpy.props.CollectionProperty(name = "Sound Bake Data", type = BakeData)
     info_text = bpy.props.StringProperty(name = "Info Text", default = "")
+    hide_unused_fcurves = bpy.props.BoolProperty(name = "Hide Unused FCurves", description = "Show only the selected baked data", default = False, update = update_fcurve_visibility)
  
 class AudioToMarkersPanel(bpy.types.Panel):
     bl_idname = "audio_to_markers_panel"
@@ -83,11 +87,17 @@ class AudioToMarkersPanel(bpy.types.Panel):
         
         subcol = col.column(align = True)
         row = subcol.row(align = True)
+        if settings.hide_unused_fcurves:
+            row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_ON")
+        else:
+            row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_OFF")
         row.operator("audio_to_markers.bake_all_frequence_ranges", icon = "RNDCURVE")
         row.operator("audio_to_markers.remove_bake_data", icon = "X", text = "")
+        
         row = subcol.row(align = True)
         row.prop(settings, "frequence_range", text = "")  
         row.operator("audio_to_markers.bake_sound", text = "Bake")
+        
         
         if show_advanced_settings:
             row = subcol.row(align = True)
