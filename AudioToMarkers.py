@@ -467,12 +467,21 @@ class BakedFCurvesPanel(bpy.types.Panel):
         row.operator("graph.bake", text = "Bake")
         row.operator("audio_to_markers.unbake_fcurves", text = "Unbake")
         
+        
         col = layout.column(align = True)
+        
         source = CopyBakedFCurveData.get_source_fcurve(return_owner = True)
         if source: copy_text = "Copy from {}.{}[{}]".format(source[0].name, source[1].data_path, source[1].array_index)   
         else: copy_text = "No Copy Source Selected"
         col.operator("audio_to_markers.copy_baked_fcurve_data", text = copy_text, icon = "COPYDOWN")   
-        col.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = "Paste", icon = "PASTEDOWN")
+        
+        target_amount = PasteCopiedBakedFCurveData.get_target_amount()
+        if len(copied_keyframe_locations) == 0: paste_text = "No Copied Data"
+        elif target_amount == 0: paste_text = "No Target Selected"
+        elif target_amount == 1: paste_text = "Paste on 1 FCurve"
+        else: paste_text = "Paste on {} FCurves".format(target_amount)
+        
+        col.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = paste_text, icon = "PASTEDOWN")
         
         if settings.paste_keyframes_info_text != "":
             layout.label(settings.paste_keyframes_info_text)
@@ -554,7 +563,7 @@ class PasteCopiedBakedFCurveData(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return True
+        return cls.get_target_amount() > 0 and len(copied_keyframe_locations) > 0
         
     def modal(self, context, event):
         if event.type == "ESC": return {"CANCELLED"}
@@ -591,7 +600,12 @@ class PasteCopiedBakedFCurveData(bpy.types.Operator):
     def cancel(self, context):
         context.window_manager.event_timer_remove(self.timer)
         self.settings.paste_keyframes_info_text = ""
+        
+    @classmethod
+    def get_target_amount(cls):
+        return len(list(cls.selected_unbaked_fcurves()))
     
+    @classmethod
     def selected_unbaked_fcurves(cls):
         for fcurve in get_active_fcurves():
             if len(fcurve.sampled_points) == 0: yield fcurve
