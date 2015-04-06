@@ -18,7 +18,7 @@ frequence_range_dict = {frequence_range[0]: frequence_range[1] for frequence_ran
 frequence_range_items = [(frequence_range[0], frequence_range[0], "") for frequence_range in frequence_ranges]
 
 
-insertion_ranges = ["Full Length", "From last Marker", "From left Border"]
+insertion_ranges = ["Full Scene", "From last Marker", "From left Border"]
 insertion_range_items = [(range, range, "") for range in insertion_ranges]
 
 
@@ -60,7 +60,7 @@ class AudioToMarkersSceneSettings(bpy.types.PropertyGroup):
     frequence_range = EnumProperty(name = "Frequence Range", items = frequence_range_items, default = "80 - 250 Hz", update = apply_frequence_range)
     low_frequence = FloatProperty(name = "Low Frequence", default = 80, update = frequence_range_changed)
     high_frequence = FloatProperty(name = "High Frequence", default = 250, update = frequence_range_changed)
-    insertion_range = EnumProperty(name = "Insertion Range", items = insertion_range_items, default = "From last Marker")
+    insertion_range = EnumProperty(name = "Insertion Range", description = "How the range is selected", items = insertion_range_items, default = "From last Marker")
     bake_data = CollectionProperty(name = "Sound Bake Data", type = BakeData)
     bake_info_text = StringProperty(name = "Info Text", default = "")
     paste_keyframes_info_text = StringProperty(name = "Bake Keyframes Info Text", default = "")
@@ -335,8 +335,8 @@ class RemoveBakeData(bpy.types.Operator):
 ################################################  
         
 class FCurveToMakersPanel(bpy.types.Panel):
-    bl_idname = "fcurve_to_markers_panel"
-    bl_label = "FCurve to Markers"
+    bl_idname = "audio_to_markers_panel"
+    bl_label = "Audio to Markers"
     bl_space_type = "GRAPH_EDITOR"
     bl_region_type = "UI"
     
@@ -346,20 +346,20 @@ class FCurveToMakersPanel(bpy.types.Panel):
         
         col = layout.column(align = False)
         col.prop(settings, "insertion_range", text = "Range") 
-        col.prop(context.space_data, "cursor_position_y", text = "Threshold")   
          
         row = col.row(align = True) 
         row.operator("audio_to_markers.insert_markers", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
         
         marker_amount = self.get_marker_amount_before_current_frame()
-        layout.label("Counter: {}".format(marker_amount))
+        if len(context.scene.timeline_markers) > 0:
+            layout.label("Counter: {}".format(marker_amount))
         
     def get_marker_amount_before_current_frame(self):
         amount = 0
         scene = bpy.context.scene
         for marker in scene.timeline_markers:
-            if marker.frame < scene.frame_current:
+            if marker.frame <= scene.frame_current:
                 amount += 1
         return amount       
      
@@ -367,7 +367,7 @@ class FCurveToMakersPanel(bpy.types.Panel):
 class InsertMarkers(bpy.types.Operator):
     bl_idname = "audio_to_markers.insert_markers"
     bl_label = "Insert Markers"
-    bl_description = ""
+    bl_description = "Create Markers based on the sound curve. Use the cursor position as threshold."
     bl_options = {"REGISTER", "INTERNAL"}
     
     @classmethod
@@ -383,7 +383,7 @@ class InsertMarkers(bpy.types.Operator):
             region = self.get_graph_region()
             start_frame = math.ceil(region.view2d.region_to_view(15, 0)[0])
             end_frame = scene.frame_current
-        elif insert_type == "Full Length":
+        elif insert_type == "Full Scene":
             start_frame = scene.frame_start
             end_frame = scene.frame_end
         elif insert_type == "From last Marker":
