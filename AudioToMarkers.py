@@ -467,9 +467,12 @@ class BakedFCurvesPanel(bpy.types.Panel):
         row.operator("graph.bake", text = "Bake")
         row.operator("audio_to_markers.unbake_fcurves", text = "Unbake")
         
-        row = layout.row(align = True)
-        row.operator("audio_to_markers.copy_baked_fcurve_data", text = "Copy")
-        row.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = "Paste")
+        col = layout.column(align = True)
+        source = CopyBakedFCurveData.get_source_fcurve(return_owner = True)
+        if source: copy_text = "Copy from {}.{}[{}]".format(source[0].name, source[1].data_path, source[1].array_index)   
+        else: copy_text = "No Copy Source Selected"
+        col.operator("audio_to_markers.copy_baked_fcurve_data", text = copy_text, icon = "COPYDOWN")   
+        col.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = "Paste", icon = "PASTEDOWN")
         
         if settings.paste_keyframes_info_text != "":
             layout.label(settings.paste_keyframes_info_text)
@@ -523,20 +526,24 @@ class CopyBakedFCurveData(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return True
+        return cls.get_source_fcurve()
     
     def execute(self, context):
         global copied_keyframe_locations
         copied_keyframe_locations = []
-        baked_fcurve = None
-        for fcurve in get_active_fcurves():
-            if len(fcurve.sampled_points) > 0:
-                baked_fcurve = fcurve
-                break
+        baked_fcurve = self.get_source_fcurve()
         if baked_fcurve:
             for sample in baked_fcurve.sampled_points:
                 copied_keyframe_locations.append((sample.co[0], sample.co[1]))
         return {"FINISHED"}
+    
+    @classmethod
+    def get_source_fcurve(cls, return_owner = False):
+        for fcurve_with_owner in get_active_fcurves(return_owner = True):
+            if len(fcurve_with_owner[1].sampled_points) > 0:
+                if return_owner: return fcurve_with_owner
+                else: return fcurve_with_owner[1]
+        return None
     
     
 class PasteCopiedBakedFCurveData(bpy.types.Operator):
