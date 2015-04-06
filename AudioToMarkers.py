@@ -35,9 +35,11 @@ def update_fcurve_visibility(self = None, context = None):
     fcurves = get_bake_data_fcurves()
     for fcurve in fcurves:
         fcurve.hide = bpy.context.scene.audio_to_markers.hide_unused_fcurves
+        fcurve.select = False
     fcurve = get_fcurve_from_current_settings()
     if fcurve:
-        only_select_fcurve(fcurve)     
+        #only_select_fcurve(fcurve)   
+        fcurve.select = True  
         fcurve.hide = False          
 
 class SoundStripData(bpy.types.PropertyGroup):
@@ -60,32 +62,29 @@ class AudioToMarkersSceneSettings(bpy.types.PropertyGroup):
     info_text = bpy.props.StringProperty(name = "Info Text", default = "")
     hide_unused_fcurves = bpy.props.BoolProperty(name = "Hide Unused FCurves", description = "Show only the selected baked data", default = False, update = update_fcurve_visibility)
  
-class AudioToMarkersPanel(bpy.types.Panel):
-    bl_idname = "audio_to_markers_panel"
-    bl_label = "Audio to Markers"
+class AudioManagerPanel(bpy.types.Panel):
+    bl_idname = "audio_manager_panel"
+    bl_label = "Bake Audio"
     bl_space_type = "GRAPH_EDITOR"
     bl_region_type = "UI"
     
     def draw(self, context):
         layout = self.layout
-        
         settings = context.scene.audio_to_markers
         
         if settings.info_text != "":
             layout.label(settings.info_text)
-        
-        col = layout.column(align = False)
-        
-        row = col.row(align = True)
+       
+        row = layout.row(align = True)
         row.prop(settings, "path", text = "Path")
         row.operator("audio_to_markers.select_music_file", icon = "FILE_SOUND", text = "")
         
-        row = col.row(align = True)
+        row = layout.row(align = True)
         row.operator("audio_to_markers.cache_sounds", icon = "LOAD_FACTORY", text = "")
         row.operator("audio_to_markers.load_into_sequence_editor", text = "Load Sound")
         row.operator("audio_to_markers.remove_sound_strips", icon = "X", text = "")
         
-        subcol = col.column(align = True)
+        subcol = layout.column(align = True)
         row = subcol.row(align = True)
         if settings.hide_unused_fcurves:
             row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_ON")
@@ -103,10 +102,16 @@ class AudioToMarkersPanel(bpy.types.Panel):
             row.prop(settings, "low_frequence", text = "Low")
             row.prop(settings, "high_frequence", text = "High")
         
-        selected_fcurves_amount = len(get_active_fcurves())
-        layout.operator("audio_to_markers.copy_to_fcurves", text = "Copy to {} Selected FCurves".format(selected_fcurves_amount))
-            
-        layout.separator()
+        
+class FCurveToMakersPanel(bpy.types.Panel):
+    bl_idname = "fcurve_to_markers_panel"
+    bl_label = "FCurve to Markers"
+    bl_space_type = "GRAPH_EDITOR"
+    bl_region_type = "UI"
+    
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.audio_to_markers
         
         col = layout.column(align = False)
         col.prop(settings, "insertion_range", text = "Range") 
@@ -114,8 +119,23 @@ class AudioToMarkersPanel(bpy.types.Panel):
          
         row = col.row(align = True) 
         row.operator("audio_to_markers.insert_markers", icon = "MARKER_HLT")    
-        row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")    
+        row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
         
+        
+class BakedFCurvesPanel(bpy.types.Panel):
+    bl_idname = "baked_fcurves_panel"
+    bl_label = "Baked FCurves"
+    bl_space_type = "GRAPH_EDITOR"
+    bl_region_type = "UI"
+    
+    def draw(self, context):
+        layout = self.layout
+              
+        selected_fcurves_amount = len(get_active_fcurves())
+        row = layout.row(align = True)
+        row.operator("graph.bake", text = "Bake")
+        row.operator("audio_to_markers.unbake_fcurves", text = "Unbake")
+ 
         
 class SelectMusicFile(bpy.types.Operator):
     bl_idname = "audio_to_markers.select_music_file"
@@ -269,10 +289,12 @@ class BakeSound(bpy.types.Operator):
         fcurve = create_current_fcurve()
         only_select_fcurve(fcurve)
         try:
+            fcurve.lock = False
             bpy.ops.graph.sound_bake(
                 filepath = self.path,
                 low = self.low,
                 high = self.high)
+            fcurve.lock = True
         except: 
             print("Could not bake the file")
             return {"CANCELLED"}
@@ -412,12 +434,12 @@ class CacheSounds(bpy.types.Operator):
         for sound in bpy.data.sounds:
             sound.use_memory_cache = True
         return {"FINISHED"}
-        
-        
-class CopyToFCurves(bpy.types.Operator):
-    bl_idname = "audio_to_markers.copy_to_fcurves"
-    bl_label = "Copy to FCurves"
-    bl_description = "Copy the active sound data to all selected fcurves"
+                
+                         
+class UnbakeFCurve(bpy.types.Operator):
+    bl_idname = "audio_to_markers.unbake_fcurves"
+    bl_label = "Unbake FCurves"
+    bl_description = "Convert selected fcurves to keyframes."
     bl_options = {"REGISTER"}
     
     @classmethod
@@ -425,27 +447,37 @@ class CopyToFCurves(bpy.types.Operator):
         return True
     
     def execute(self, context):
-        bake_data = get_fcurve_from_current_settings()
-        if not bake_data: return {"CANCELLED"}
-        
-        for fcurve in get_active_fcurves():
-            for point in bake_data.sampled_points:
-                keyframe = fcurve.keyframe_points.insert(frame = point.co[0], value = point.co[1])
-                keyframe.interpolation = "LINEAR"
-        bpy.context.area.tag_redraw()
+        for object, fcurve in get_active_fcurves(return_owner = True):
+            if len(fcurve.sampled_points) > 0 and not fcurve.lock:
+                self.unbake_fcurve(object, fcurve)
         return {"FINISHED"}
-                
-                         
+    
+    def unbake_fcurve(self, object, fcurve):
+        sample_locations = [(sample.co[0], sample.co[1]) for sample in fcurve.sampled_points]
+        keyframe_locations = []
+        for i, co in enumerate(sample_locations):
+            if i == 0: continue
+            if co[1] != sample_locations[i-1][1]:
+                keyframe_locations.append(co)
+        data_path = fcurve.data_path
+        index = fcurve.array_index
+        object.animation_data.action.fcurves.remove(fcurve)
+        fcurve = object.animation_data.action.fcurves.new(data_path = data_path, index = index)
+        for co in keyframe_locations:
+            keyframe = fcurve.keyframe_points.insert(frame = co[0], value = co[1])
+            keyframe.interpolation = "LINEAR"
+        bpy.context.area.tag_redraw()                
                          
 
-def get_active_fcurves():
-    fcurves = []
-    for object in bpy.context.selected_objects:
+def get_active_fcurves(return_owner = False):
+    fcurves_with_owner = []
+    for object in bpy.context.selected_objects + [bpy.context.scene]:
         try:
             for fcurve in object.animation_data.action.fcurves:
-                if fcurve.select: fcurves.append(fcurve)
+                if fcurve.select: fcurves_with_owner.append((object, fcurve))
         except: pass
-    return fcurves                      
+    if return_owner: return fcurves_with_owner
+    return [fcurve_with_owner[1] for fcurve_with_owner in fcurves_with_owner]                   
                          
 def only_select_fcurve(fcurve):
     deselect_fcurves()
