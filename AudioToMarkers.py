@@ -469,6 +469,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         global manual_marker_insertion_active
         manual_marker_insertion_active = True
         args = (self, context)
+        self.exit_operator = False
         self._handle = bpy.types.SpaceGraphEditor.draw_handler_add(self.draw_callback_px, args, "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
@@ -477,45 +478,56 @@ class ManualMarkerInsertion(bpy.types.Operator):
         bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
         
     def modal(self, context, event):
-        context.area.tag_redraw()
-        self.fcurve = get_active_fcurve()
-        
-        mouse_pos = Vector((event.mouse_region_x, event.mouse_region_y))
-               
         self.snap_location, snap_frame = self.get_snapping_result(event)
         
-        if event.type in ["LEFT_CTRL", "RIGHT_CTRL"] and event.value == "PRESS":
-            self.set_current_frame_to_mouse(event)
-            
-        if event.type == "A" and event.alt and event.value == "PRESS":
-            bpy.ops.screen.animation_play()
-            
-        if self.is_mouse_close_to_time_cursor(event):
-            return {"PASS_THROUGH"}
-        
-        if self.is_mouse_inside(event, context.area) and not self.is_mouse_inside(event, context.region):
-            return {"PASS_THROUGH"}
-        
-        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
-            if self.is_mouse_inside(event, context.region):
-                insert_markers([snap_frame])
-            else:
-                self.cancel(context)
-                return {"FINISHED"}
-            
-        if event.type in {"RIGHTMOUSE", "ESC"}:
+        # finish events
+        if self.exit_operator or event.type in ["ESC", "RIGHTMOUSE"]: 
             self.cancel(context)
-            return {"CANCELLED"}
+            return {"FINISHED"}
+        
+        # pass through events
         
         if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
             return {"PASS_THROUGH"}
-            
+        
+        if self.is_mouse_over_side_bars(event):
+            return {"PASS_THROUGH"}
+        
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if self.is_mouse_over_side_bars(event):
+                self.exit_operator = True
+                return {"PASS_THROUGH"}
+        
+        self.go_5_seconds_back_handler(event)
+        self.play_or_pause_animation_handler(event)    
+        self.insert_marker_handler(event, snap_frame)
+         
+        context.area.tag_redraw()    
         return {"RUNNING_MODAL"}  
+    
+    def play_or_pause_animation_handler(self, event):
+        if event.type == "A" and event.alt and event.value == "PRESS":
+            bpy.ops.screen.animation_play()
+    
+    def go_5_seconds_back_handler(self, event):
+        if event.type in ["LEFT_CTRL", "RIGHT_CTRL"] and event.value == "PRESS":
+            self.replay_sound(event, 5)
+            
+    def is_mouse_over_side_bars(self, event):
+        return self.is_mouse_inside(event, bpy.context.area) and \
+            not self.is_mouse_inside(event, bpy.context.region)
+            
+    def insert_marker_handler(self, event, snap_frame):
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self.is_mouse_inside(event, bpy.context.region):
+                insert_markers([snap_frame])
+            
     
     def get_snapping_result(self, event):
         mouse_x = event.mouse_region_x
         mouse_y = event.mouse_region_y
         
+        fcurve = get_active_fcurve()
         view = bpy.context.region.view2d
         start_frame = round(view.region_to_view(mouse_x-20, 0)[0])
         end_frame = round(view.region_to_view(mouse_x+20, 0)[0])
@@ -523,7 +535,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         max_frame = 0
         max_value = -1000000
         for frame in range(start_frame, end_frame):
-            value = self.fcurve.evaluate(frame)
+            value = fcurve.evaluate(frame)
             if value > max_value:
                 max_frame = frame
                 max_value = value
@@ -531,19 +543,12 @@ class ManualMarkerInsertion(bpy.types.Operator):
         snap_location = view.view_to_region(max_frame, max_value)
         return snap_location, max_frame
     
-    def set_current_frame_to_mouse(self, event):
-        view = bpy.context.region.view2d
-        bpy.context.scene.frame_current = round(view.region_to_view(50, 0)[0])
+    def replay_sound(self, event, seconds):
+        scene = bpy.context.scene
+        scene.frame_current -= scene.render.fps * seconds
     
     def is_mouse_inside(self, event, area):
         return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
-        
-    def is_mouse_close_to_time_cursor(self, event):
-        view = bpy.context.region.view2d
-        frame_region_x = view.view_to_region(bpy.context.scene.frame_current, 0)[0]
-        distance = abs(frame_region_x - event.mouse_region_x)
-        print(distance)
-        return distance < 10
         
     def draw_callback_px(tmp, self, context):
         self.draw_marker(self.snap_location)
