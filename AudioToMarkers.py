@@ -27,7 +27,6 @@ insertion_range_items = [(range, range, "") for range in insertion_ranges]
 
 
 copied_keyframe_locations = []
-manual_marker_insertion_active = False
 
 
 def apply_frequence_range(self, context):
@@ -358,9 +357,6 @@ class FCurveToMakersPanel(bpy.types.Panel):
         
         layout.operator("audio_to_markers.manual_marker_insertion")
         
-        if manual_marker_insertion_active:
-            layout.label("Finish by clicking somewhere")
-        
         marker_amount = self.get_marker_amount_before_current_frame()
         if len(context.scene.timeline_markers) > 0:
             layout.label("Counter: {}".format(marker_amount))
@@ -478,8 +474,6 @@ class ManualMarkerInsertion(bpy.types.Operator):
         return {"RUNNING_MODAL"}
     
     def cancel(self, context):
-        global manual_marker_insertion_active
-        manual_marker_insertion_active = False
         bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
         
     def modal(self, context, event):
@@ -549,7 +543,19 @@ class ManualMarkerInsertion(bpy.types.Operator):
         draw_dot(position, 8.0, (0.4, 0.8, 0.2, 0.7))
         
     def draw_operator_help(self):
-        pass
+        font_id = 0
+        glColor4f(0.2, 0.2, 0.2, 1.0)
+        blf.size(font_id, 16, 80)
+        text = [
+            "LMB: Insert Marker",
+            "CTRL: Reset current frame",
+            "ALT - A: Play/Pause",
+            "ESC / RMB: Finish operator" ]
+        
+        top = bpy.context.area.height - 70
+        for i, line in enumerate(text):
+            blf.position(font_id, 50, top - i * 30, 0)
+            blf.draw(font_id, line)
 
 def draw_dot(position, size, color):
     glColor4f(*color)
