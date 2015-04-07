@@ -396,7 +396,8 @@ class ManualMarkerInsertion(bpy.types.Operator):
         manual_marker_insertion_active = True
         args = (self, context)
         self.mouse_down_position = get_mouse_position(event)
-        self.is_mouse_down = False
+        self.is_left_mouse_down = False
+        self.is_right_mouse_down = False
         self.insertion_preview_data = []
         
         self.selection_type = "NONE"
@@ -419,15 +420,23 @@ class ManualMarkerInsertion(bpy.types.Operator):
         self.snap_location, snap_frame = self.get_snapping_result(event)
         self.insertion_preview_data = [(self.snap_location, snap_frame not in self.marked_frames)]
         self.selection.right = event.mouse_region_x 
-        if event.type == "LEFTMOUSE" and self.is_mouse_inside(event, context.region):
+        
+        if event.type == "LEFTMOUSE":
             if event.value == "PRESS":
                 self.mouse_down_position = get_mouse_position(event)
-                self.is_mouse_down = True
+                self.is_left_mouse_down = True
             if event.value == "RELEASE":
-                self.is_mouse_down = False
-        
+                self.is_left_mouse_down = False
+                
+        if event.type == "RIGHTMOUSE":
+            if event.value == "PRESS":
+                self.mouse_down_position = get_mouse_position(event)
+                self.is_right_mouse_down = True
+            if event.value == "RELEASE":
+                self.is_right_mouse_down = False
+               
         # finish events
-        if event.type in ["ESC", "RIGHTMOUSE"]: 
+        if event.type == "ESC": 
             self.cancel(context)
             return {"FINISHED"}
         
@@ -442,7 +451,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         self.remove_markers_handler(event)
         self.insert_multiple_markers_handler(event)
         
-        if event.type == "SPACE" and event.value == "PRESS" and event.shift:
+        if event.type == "SPACE" and event.value == "PRESS" and event.shift and self.is_mouse_inside(event, context.area):
             bpy.ops.screen.screen_full_area()
             return {"RUNNING_MODAL"}
         
@@ -474,20 +483,20 @@ class ManualMarkerInsertion(bpy.types.Operator):
                 insert_markers([snap_frame])
                 
     def remove_markers_handler(self, event): 
-        if event.type == "LEFTMOUSE":
-            if event.value == "PRESS" and event.alt:
-                self.selection_type = "REMOVE"
-                self.selection.left = event.mouse_region_x
-                self.selection.right = event.mouse_region_x
-            if self.selection_type == "REMOVE" and event.value == "RELEASE":
-                self.selection_type = "NONE"
-                start_frame = self.get_frame_under_region_x(self.selection.left)
-                end_frame = self.get_frame_under_region_x(self.selection.right)
-                remove_markers(start_frame, end_frame)
+        if self.selection_type == "INSERT": return
+        if self.is_right_mouse_down and (get_mouse_position(event)-self.mouse_down_position).length > 14:
+            self.selection_type = "REMOVE"
+            self.selection.left = self.mouse_down_position.x
+            self.selection.right = event.mouse_region_x
+        if self.selection_type == "REMOVE" and not self.is_right_mouse_down:
+            self.selection_type = "NONE"
+            start_frame = self.get_frame_under_region_x(self.selection.left)
+            end_frame = self.get_frame_under_region_x(self.selection.right)
+            remove_markers(start_frame, end_frame)
                 
     def insert_multiple_markers_handler(self, event):
         if self.selection_type == "REMOVE": return
-        if self.is_mouse_down and (get_mouse_position(event)-self.mouse_down_position).length > 14:
+        if self.is_left_mouse_down and (get_mouse_position(event)-self.mouse_down_position).length > 14:
             self.selection_type = "INSERT"
             self.selection.left = self.mouse_down_position.x
             self.selection.right = event.mouse_region_x
@@ -500,7 +509,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             for frame, location in zip(insertion_frames, locations):
                 self.insertion_preview_data.append((location, frame not in self.marked_frames))
             
-        if self.selection_type == "INSERT" and not self.is_mouse_down:
+        if self.selection_type == "INSERT" and not self.is_left_mouse_down:
             self.selection_type = "NONE"
             frames = self.get_insertion_frames(event)
             insert_markers(frames)
@@ -582,19 +591,31 @@ class ManualMarkerInsertion(bpy.types.Operator):
             size = 5.0
         draw_dot(position, size, color)
         
-    def draw_operator_help(self):
+    def draw_operator_help(self): 
         font_id = 0
-        glColor4f(0.2, 0.2, 0.2, 1.0)
-        blf.size(font_id, 16, 80)
         text = [
-            "LMB: Insert Marker",
-            "CTRL: Reset current frame",
+            "LMB (drag): Insert Markers",
+            "RMB drag: Remove Markers",
+            "Space: Set Current Frame",
+            "CTRL: Go 5 seconds back",
             "ALT - A: Play/Pause",
-            "ESC / RMB: Finish operator" ]
+            "ESC: Finish operator" ]
         
-        top = bpy.context.area.height - 70
+        background = Rectangle()
+        background.color = (0.0, 0.0, 0.0, 0.6)
+        background.border_color = (0.0, 0.0, 0.0, 0.9)
+        background.top = bpy.context.area.height
+        background.bottom = background.top - 50 - len(text)*30
+        background.left = 0
+        background.right = 200
+        
+        background.draw()
+        
+        glColor4f(0.9, 0.9, 0.9, 1.0)
+        blf.size(font_id, 12, 80)
+        top = bpy.context.area.height - 60
         for i, line in enumerate(text):
-            blf.position(font_id, 50, top - i * 30, 0)
+            blf.position(font_id, 20, top - i * 30, 0)
             blf.draw(font_id, line)
             
             
