@@ -419,25 +419,9 @@ class InsertMarkers(bpy.types.Operator):
         return frame    
     
     def insert_beat_markers(self, sound_curve, start, end, threshold):
-        frames = self.get_beat_frames(sound_curve, start, end, threshold)
+        frames = get_high_frames(sound_curve, start, end, threshold)
         insert_markers(frames)
-        
-    def get_beat_frames(self, sound_curve, start, end, threshold):
-        frames = []
-        is_over_threshold = False
-        for frame in range(start, end):
-            value = self.highest_value_of_frame(sound_curve, frame)
-            next_value = self.highest_value_of_frame(sound_curve, frame + 1)
-            if value > next_value > threshold and not is_over_threshold:
-                is_over_threshold = True
-                frames.append(frame)
-            if value < threshold:
-                is_over_threshold = False
-        return frames
     
-    def highest_value_of_frame(self, fcurve, frame):
-        return max(fcurve.evaluate(frame-0.5), fcurve.evaluate(frame-0.25), fcurve.evaluate(frame), fcurve.evaluate(frame+0.25))
-            
      
 class RemoveAllMarkers(bpy.types.Operator):
     bl_idname = "audio_to_markers.remove_all_markers"
@@ -463,20 +447,25 @@ class ManualMarkerInsertion(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return True
+        return get_active_fcurve()
         
     def invoke(self, context, event):
         global manual_marker_insertion_active
         manual_marker_insertion_active = True
         args = (self, context)
         self.exit_operator = False
-        self.remove_markers = False
-        self.remove_rectangle = Rectangle()
-        self.remove_rectangle.top = 10000
-        self.remove_rectangle.bottom = -10000
-        self.remove_rectangle.color = (1.0, 0.1, 0.1, 0.2)
-        self.remove_rectangle.border_color = (0.8, 0.2, 0.1, 0.6)
-        self.remove_rectangle.border_thickness = 2
+        self.mouse_down_position = get_mouse_position(event)
+        self.is_mouse_down = False
+        self.insertion_preview_data = []
+        
+        self.selection_type = "NONE"
+        self.selection = Rectangle()
+        self.selection.top = 10000
+        self.selection.bottom = -10000
+        self.selection.color = (1.0, 0.1, 0.1, 0.2)
+        self.selection.border_color = (0.8, 0.2, 0.1, 0.6)
+        self.selection.border_thickness = 2
+        
         self._handle = bpy.types.SpaceGraphEditor.draw_handler_add(self.draw_callback_px, args, "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
@@ -485,7 +474,16 @@ class ManualMarkerInsertion(bpy.types.Operator):
         bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
         
     def modal(self, context, event):
+        self.marked_frames = get_marked_frames()
         self.snap_location, snap_frame = self.get_snapping_result(event)
+        self.insertion_preview_data = [(self.snap_location, snap_frame not in self.marked_frames)]
+        self.selection.right = event.mouse_region_x 
+        if event.type == "LEFTMOUSE" and self.is_mouse_inside(event, context.region):
+            if event.value == "PRESS":
+                self.mouse_down_position = get_mouse_position(event)
+                self.is_mouse_down = True
+            if event.value == "RELEASE":
+                self.is_mouse_down = False
         
         # finish events
         if self.exit_operator or event.type in ["ESC", "RIGHTMOUSE"]: 
@@ -493,25 +491,27 @@ class ManualMarkerInsertion(bpy.types.Operator):
             return {"FINISHED"}
         
         # pass through events
-        
-        if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
-            return {"PASS_THROUGH"}
-        
-        if self.is_mouse_over_side_bars(event):
-            return {"PASS_THROUGH"}
-        
-        if event.type == "LEFTMOUSE" and event.value == "PRESS":
-            if self.is_mouse_over_side_bars(event):
+        if self.is_mouse_inside(event, context.region):
+            if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
                 return {"PASS_THROUGH"}
-            elif not self.is_mouse_inside(event, context.area):
+            
+            if self.is_mouse_over_side_bars(event) and not self.is_mouse_down:
+                return {"PASS_THROUGH"}
+        else:
+            if event.type == "LEFTMOUSE" and event.value == "PRESS":
                 self.exit_operator = True
                 return {"PASS_THROUGH"}
-        
+            
         self.go_5_seconds_back_handler(event)
         self.set_frame_to_cursor_handler(event)
         self.play_or_pause_animation_handler(event)  
         self.insert_marker_handler(event, snap_frame)
         self.remove_markers_handler(event)
+        self.insert_multiple_markers_handler(event)
+        
+        if event.type == "SPACE" and event.value == "PRESS" and event.shift:
+            bpy.ops.screen.screen_full_area()
+            return {"RUNNING_MODAL"}
         
         context.area.tag_redraw()    
         return {"RUNNING_MODAL"}  
@@ -535,24 +535,58 @@ class ManualMarkerInsertion(bpy.types.Operator):
             not self.is_mouse_inside(event, bpy.context.region)
             
     def insert_marker_handler(self, event, snap_frame):
-        if self.remove_markers: return
+        if self.selection_type != "NONE": return
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.is_mouse_inside(event, bpy.context.region):
                 insert_markers([snap_frame])
                 
-    def remove_markers_handler(self, event):
-        if self.remove_markers:
-            self.remove_rectangle.right = event.mouse_region_x    
-        if event.alt and event.type == "LEFTMOUSE":
-            if event.value == "PRESS":
-                self.remove_markers = True
-                self.remove_rectangle.left = event.mouse_region_x
-                self.remove_rectangle.right = event.mouse_region_x
-            if event.value == "RELEASE":
-                self.remove_markers = False
-                start_frame = self.get_frame_under_region_x(self.remove_rectangle.left)
-                end_frame = self.get_frame_under_region_x(self.remove_rectangle.right)
+    def remove_markers_handler(self, event): 
+        if event.type == "LEFTMOUSE":
+            if event.value == "PRESS" and event.alt:
+                self.selection_type = "REMOVE"
+                self.selection.left = event.mouse_region_x
+                self.selection.right = event.mouse_region_x
+            if self.selection_type == "REMOVE" and event.value == "RELEASE":
+                self.selection_type = "NONE"
+                start_frame = self.get_frame_under_region_x(self.selection.left)
+                end_frame = self.get_frame_under_region_x(self.selection.right)
                 remove_markers(start_frame, end_frame)
+                
+    def insert_multiple_markers_handler(self, event):
+        if self.selection_type == "REMOVE": return
+        if self.is_mouse_down and (get_mouse_position(event)-self.mouse_down_position).length > 14:
+            self.selection_type = "INSERT"
+            self.selection.left = self.mouse_down_position.x
+            self.selection.right = event.mouse_region_x
+        if self.selection_type == "INSERT":
+            threshold = self.get_view_y_under_region_y(event.mouse_region_y)
+            bpy.context.space_data.cursor_position_y = threshold
+            insertion_frames = self.get_insertion_frames(event)
+            locations = self.get_region_points_from_frames(insertion_frames)
+            self.insertion_preview_data = []
+            for frame, location in zip(insertion_frames, locations):
+                self.insertion_preview_data.append((location, frame not in self.marked_frames))
+            
+        if self.selection_type == "INSERT" and not self.is_mouse_down:
+            self.selection_type = "NONE"
+            frames = self.get_insertion_frames(event)
+            insert_markers(frames)
+            
+    def get_insertion_frames(self, event):
+        fcurve = get_active_fcurve()
+        start_frame = self.get_frame_under_region_x(self.selection.left)
+        end_frame = self.get_frame_under_region_x(self.selection.right)
+        threshold = bpy.context.space_data.cursor_position_y 
+        return get_high_frames(fcurve, start_frame, end_frame, threshold)
+    
+    def get_region_points_from_frames(self, frames):
+        points = []
+        view = bpy.context.region.view2d
+        fcurve = get_active_fcurve()
+        for frame in frames:
+            value = fcurve.evaluate(frame)
+            points.append(view.view_to_region(frame, value))
+        return points
     
     def get_snapping_result(self, event):
         mouse_x = event.mouse_region_x
@@ -581,6 +615,9 @@ class ManualMarkerInsertion(bpy.types.Operator):
     def get_frame_under_region_x(self, x):
         return bpy.context.region.view2d.region_to_view(x, 0)[0]
     
+    def get_view_y_under_region_y(self, y):
+        return bpy.context.region.view2d.region_to_view(0, y)[1]
+    
     def replay_sound(self, event, seconds):
         scene = bpy.context.scene
         scene.frame_current -= scene.render.fps * seconds
@@ -589,14 +626,27 @@ class ManualMarkerInsertion(bpy.types.Operator):
         return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
         
     def draw_callback_px(tmp, self, context):
-        if self.remove_markers:
-            self.remove_rectangle.draw()
-        else:
-            self.draw_marker(self.snap_location)
+        if self.selection_type != "NONE":
+            if self.selection_type == "REMOVE":
+                self.selection.color = (1.0, 0.1, 0.1, 0.07)
+                self.selection.border_color = (0.8, 0.2, 0.1, 0.4) 
+            elif self.selection_type == "INSERT":
+                self.selection.color = (0.1, 1.0, 0.1, 0.07)
+                self.selection.border_color = (0.2, 0.8, 0.1, 0.4) 
+            self.selection.draw()
+            
+        for location, enabled in self.insertion_preview_data:
+            self.draw_marker(location, enabled)
         self.draw_operator_help()
         
-    def draw_marker(self, position):
-        draw_dot(position, 8.0, (0.4, 0.8, 0.2, 0.7))
+    def draw_marker(self, position, enabled = True):
+        if enabled: 
+            color = (0.4, 0.8, 0.2, 0.7)
+            size = 8.0
+        else: 
+            color = (0.8, 0.8, 0.8, 0.5)
+            size = 5.0
+        draw_dot(position, size, color)
         
     def draw_operator_help(self):
         font_id = 0
@@ -615,6 +665,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
 
 def draw_dot(position, size, color):
     glColor4f(*color)
+    glEnable(GL_BLEND)
     glPointSize(size)
     glBegin(GL_POINTS)
     glVertex2f(*position)
@@ -624,17 +675,38 @@ def draw_dot(position, size, color):
         
 def insert_markers(frames):
     scene = bpy.context.scene
-    marked_frames = [marker.frame for marker in scene.timeline_markers]
+    marked_frames = get_marked_frames()
     for frame in frames:
         if frame not in marked_frames:
             scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)  
+            
+def get_marked_frames():
+    return [marker.frame for marker in bpy.context.scene.timeline_markers]          
             
 def remove_markers(start_frame, end_frame):
     start_frame, end_frame = sorted([start_frame, end_frame])
     scene = bpy.context.scene
     for marker in scene.timeline_markers:
         if start_frame <= marker.frame <= end_frame:
-            scene.timeline_markers.remove(marker)                  
+            scene.timeline_markers.remove(marker)   
+            
+def get_high_frames(sound_curve, start, end, threshold):
+    start, end = sorted([start, end])
+    frames = []
+    is_over_threshold = False
+    for frame in range(round(start), round(end)):
+        value = highest_value_of_frame(sound_curve, frame)
+        next_value = highest_value_of_frame(sound_curve, frame + 1)
+        if value > next_value > threshold and not is_over_threshold:
+            is_over_threshold = True
+            frames.append(frame)
+        if value < threshold:
+            is_over_threshold = False
+    return frames     
+
+def highest_value_of_frame(fcurve, frame):
+    return max(fcurve.evaluate(frame-0.5), fcurve.evaluate(frame-0.25), fcurve.evaluate(frame), fcurve.evaluate(frame+0.25))
+                                
                         
 
 
@@ -892,6 +964,9 @@ def iter_all_fcurves():
     for action in bpy.data.actions:
         for fcurve in action.fcurves:
             yield fcurve
+        
+def get_mouse_position(event):
+    return Vector((event.mouse_region_x, event.mouse_region_y))        
  
 class Line:
     def __init__(self):
