@@ -87,34 +87,33 @@ class AudioManagerPanel(bpy.types.Panel):
         row.prop(settings, "path", text = "Sound")
         row.operator("audio_to_markers.select_music_file", icon = "FILE_SOUND", text = "")
         
-        if settings.path == "": return
-        
-        row = col.row(align = True)
-        row.operator("audio_to_markers.cache_sounds", icon = "LOAD_FACTORY", text = "")
-        row.operator("audio_to_markers.load_into_sequence_editor", text = "Load Sound")
-        row.operator("audio_to_markers.remove_sound_strips", icon = "X", text = "")
-        
-        col = layout.column(align = False)
-        
-        subcol = col.column(align = True)
-        subcol.prop(settings, "frequence_range", text = "")  
-        subcol.prop(settings, "low_frequence", text = "Low")
-        subcol.prop(settings, "high_frequence", text = "High")
-          
-        subcol.operator("audio_to_markers.bake_sound", text = "Bake", icon = "RNDCURVE")
-        
-        row = col.row(align = True)
-        if settings.hide_unused_fcurves: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_ON")
-        else: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_OFF")
-        
-        if settings.lock_sound_fcurves: row.prop(settings, "lock_sound_fcurves", text = "", icon = "LOCKED")
-        else: row.prop(settings, "lock_sound_fcurves", text = "", icon = "UNLOCKED")
-        
-        row.operator("audio_to_markers.bake_all_frequence_ranges")
-        row.operator("audio_to_markers.remove_bake_data", icon = "X", text = "")
+        if settings.path != "":
+            row = col.row(align = True)
+            row.operator("audio_to_markers.cache_sounds", icon = "LOAD_FACTORY", text = "")
+            row.operator("audio_to_markers.load_into_sequence_editor", text = "Load Sound")
+            row.operator("audio_to_markers.remove_sound_strips", icon = "X", text = "")
             
-        if settings.bake_info_text != "":
-            layout.label(settings.bake_info_text)
+            col = layout.column(align = False)
+            
+            subcol = col.column(align = True)
+            subcol.prop(settings, "frequence_range", text = "")  
+            subcol.prop(settings, "low_frequence", text = "Low")
+            subcol.prop(settings, "high_frequence", text = "High")
+              
+            subcol.operator("audio_to_markers.bake_sound", text = "Bake", icon = "RNDCURVE")
+            
+            row = col.row(align = True)
+            if settings.hide_unused_fcurves: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_ON")
+            else: row.prop(settings, "hide_unused_fcurves", text = "", icon = "RESTRICT_VIEW_OFF")
+            
+            if settings.lock_sound_fcurves: row.prop(settings, "lock_sound_fcurves", text = "", icon = "LOCKED")
+            else: row.prop(settings, "lock_sound_fcurves", text = "", icon = "UNLOCKED")
+            
+            row.operator("audio_to_markers.bake_all_frequence_ranges")
+            row.operator("audio_to_markers.remove_bake_data", icon = "X", text = "")
+                
+            if settings.bake_info_text != "":
+                layout.label(settings.bake_info_text)
             
           
         layout.separator()
