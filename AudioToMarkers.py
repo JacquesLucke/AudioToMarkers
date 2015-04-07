@@ -489,6 +489,9 @@ class ManualMarkerInsertion(bpy.types.Operator):
             
         if event.type == "A" and event.alt and event.value == "PRESS":
             bpy.ops.screen.animation_play()
+            
+        if self.is_mouse_close_to_time_cursor(event):
+            return {"PASS_THROUGH"}
         
         if self.is_mouse_inside(event, context.area) and not self.is_mouse_inside(event, context.region):
             return {"PASS_THROUGH"}
@@ -534,6 +537,13 @@ class ManualMarkerInsertion(bpy.types.Operator):
     
     def is_mouse_inside(self, event, area):
         return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
+        
+    def is_mouse_close_to_time_cursor(self, event):
+        view = bpy.context.region.view2d
+        frame_region_x = view.view_to_region(bpy.context.scene.frame_current, 0)[0]
+        distance = abs(frame_region_x - event.mouse_region_x)
+        print(distance)
+        return distance < 10
         
     def draw_callback_px(tmp, self, context):
         self.draw_marker(self.snap_location)
