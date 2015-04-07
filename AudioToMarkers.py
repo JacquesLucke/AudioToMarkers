@@ -556,7 +556,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         scene.frame_current -= scene.render.fps * seconds
     
     def is_mouse_inside(self, event, area):
-        return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
+        return 0 <= event.mouse_region_x < area.width and 0 < event.mouse_region_y < area.height
         
     def draw_callback_px(tmp, self, context):
         if self.selection_type != "NONE":
