@@ -21,11 +21,6 @@ frequence_ranges = (
 frequence_range_dict = {frequence_range[0]: frequence_range[1] for frequence_range in frequence_ranges} 
 frequence_range_items = [(frequence_range[0], frequence_range[0], "") for frequence_range in frequence_ranges]
 
-
-insertion_ranges = ["Full Scene", "From last Marker", "From left Border"]
-insertion_range_items = [(range, range, "") for range in insertion_ranges]
-
-
 copied_keyframe_locations = []
 
 
@@ -64,7 +59,6 @@ class AudioToMarkersSceneSettings(bpy.types.PropertyGroup):
     frequence_range = EnumProperty(name = "Frequence Range", items = frequence_range_items, default = "80 - 250 Hz", update = apply_frequence_range)
     low_frequence = FloatProperty(name = "Low Frequence", default = 80, update = frequence_range_changed)
     high_frequence = FloatProperty(name = "High Frequence", default = 250, update = frequence_range_changed)
-    insertion_range = EnumProperty(name = "Insertion Range", description = "How the range is selected", items = insertion_range_items, default = "From last Marker")
     bake_data = CollectionProperty(name = "Sound Bake Data", type = BakeData)
     bake_info_text = StringProperty(name = "Info Text", default = "")
     paste_keyframes_info_text = StringProperty(name = "Bake Keyframes Info Text", default = "")
@@ -349,13 +343,9 @@ class FCurveToMakersPanel(bpy.types.Panel):
         settings = context.scene.audio_to_markers
         
         col = layout.column(align = False)
-        col.prop(settings, "insertion_range", text = "Range") 
-         
         row = col.row(align = True) 
-        row.operator("audio_to_markers.insert_markers", icon = "MARKER_HLT")    
+        row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
-        
-        layout.operator("audio_to_markers.manual_marker_insertion")
         
         marker_amount = self.get_marker_amount_before_current_frame()
         if len(context.scene.timeline_markers) > 0:
@@ -369,59 +359,6 @@ class FCurveToMakersPanel(bpy.types.Panel):
                 amount += 1
         return amount       
      
-     
-class InsertMarkers(bpy.types.Operator):
-    bl_idname = "audio_to_markers.insert_markers"
-    bl_label = "Insert Markers"
-    bl_description = "Create Markers based on the sound curve. Use the cursor position as threshold."
-    bl_options = {"REGISTER", "INTERNAL"}
-    
-    @classmethod
-    def poll(cls, context):
-        return True
-    
-    def execute(self, context):
-        scene = context.scene
-        settings = scene.audio_to_markers
-        
-        insert_type = settings.insertion_range
-        if insert_type == "From left Border":
-            region = self.get_graph_region()
-            start_frame = math.ceil(region.view2d.region_to_view(15, 0)[0])
-            end_frame = scene.frame_current
-        elif insert_type == "Full Scene":
-            start_frame = scene.frame_start
-            end_frame = scene.frame_end
-        elif insert_type == "From last Marker":
-            start_frame = self.get_last_marker_frame_before_cursor(scene)
-            end_frame = scene.frame_current
-            
-        
-        fcurve = get_active_fcurve()
-        if fcurve:
-            self.insert_beat_markers(fcurve, start_frame, end_frame, context.space_data.cursor_position_y)
-        
-        return {"FINISHED"}
-    
-    def get_graph_region(self):
-        for area in bpy.context.screen.areas:
-            if area.type == "GRAPH_EDITOR":
-                for region in area.regions:
-                    if region.type == "WINDOW":
-                        return region    
-                    
-    def get_last_marker_frame_before_cursor(self, scene):
-        frame = 0
-        for marker in scene.timeline_markers:
-            if marker.frame >= scene.frame_current:
-                break
-            frame = marker.frame
-        return frame    
-    
-    def insert_beat_markers(self, sound_curve, start, end, threshold):
-        frames = get_high_frames(sound_curve, start, end, threshold)
-        insert_markers(frames)
-    
      
 class RemoveAllMarkers(bpy.types.Operator):
     bl_idname = "audio_to_markers.remove_all_markers"
