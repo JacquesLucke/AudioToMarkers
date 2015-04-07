@@ -390,7 +390,6 @@ class ManualMarkerInsertion(bpy.types.Operator):
         global manual_marker_insertion_active
         manual_marker_insertion_active = True
         args = (self, context)
-        self.exit_operator = False
         self.mouse_down_position = get_mouse_position(event)
         self.is_mouse_down = False
         self.insertion_preview_data = []
@@ -423,21 +422,13 @@ class ManualMarkerInsertion(bpy.types.Operator):
                 self.is_mouse_down = False
         
         # finish events
-        if self.exit_operator or event.type in ["ESC", "RIGHTMOUSE"]: 
+        if event.type in ["ESC", "RIGHTMOUSE"]: 
             self.cancel(context)
             return {"FINISHED"}
         
         # pass through events
-        if self.is_mouse_inside(event, context.region):
-            if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
-                return {"PASS_THROUGH"}
-            
-            if self.is_mouse_over_side_bars(event) and not self.is_mouse_down:
-                return {"PASS_THROUGH"}
-        else:
-            if event.type == "LEFTMOUSE" and event.value == "PRESS":
-                self.exit_operator = True
-                return {"PASS_THROUGH"}
+        if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
+            return {"PASS_THROUGH"}
             
         self.go_5_seconds_back_handler(event)
         self.set_frame_to_cursor_handler(event)
@@ -571,9 +562,10 @@ class ManualMarkerInsertion(bpy.types.Operator):
                 self.selection.color = (0.1, 1.0, 0.1, 0.07)
                 self.selection.border_color = (0.2, 0.8, 0.1, 0.4) 
             self.selection.draw()
-            
-        for location, enabled in self.insertion_preview_data:
-            self.draw_marker(location, enabled)
+        
+        if self.selection_type != "REMOVE":    
+            for location, enabled in self.insertion_preview_data:
+                self.draw_marker(location, enabled)
         self.draw_operator_help()
         
     def draw_marker(self, position, enabled = True):
