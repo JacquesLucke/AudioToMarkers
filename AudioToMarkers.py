@@ -470,6 +470,13 @@ class ManualMarkerInsertion(bpy.types.Operator):
         manual_marker_insertion_active = True
         args = (self, context)
         self.exit_operator = False
+        self.remove_markers = False
+        self.remove_rectangle = Rectangle()
+        self.remove_rectangle.top = 10000
+        self.remove_rectangle.bottom = -10000
+        self.remove_rectangle.color = (1.0, 0.1, 0.1, 0.2)
+        self.remove_rectangle.border_color = (0.8, 0.2, 0.1, 0.6)
+        self.remove_rectangle.border_thickness = 2
         self._handle = bpy.types.SpaceGraphEditor.draw_handler_add(self.draw_callback_px, args, "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
@@ -495,33 +502,57 @@ class ManualMarkerInsertion(bpy.types.Operator):
         
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             if self.is_mouse_over_side_bars(event):
+                return {"PASS_THROUGH"}
+            elif not self.is_mouse_inside(event, context.area):
                 self.exit_operator = True
                 return {"PASS_THROUGH"}
         
         self.go_5_seconds_back_handler(event)
-        self.play_or_pause_animation_handler(event)    
+        self.set_frame_to_cursor_handler(event)
+        self.play_or_pause_animation_handler(event)  
         self.insert_marker_handler(event, snap_frame)
-         
+        self.remove_markers_handler(event)
+        
         context.area.tag_redraw()    
         return {"RUNNING_MODAL"}  
     
-    def play_or_pause_animation_handler(self, event):
-        if event.type == "A" and event.alt and event.value == "PRESS":
-            bpy.ops.screen.animation_play()
+            
+    def set_frame_to_cursor_handler(self, event):
+        if event.type == "SPACE" and event.value == "PRESS":
+            frame = bpy.context.region.view2d.region_to_view(event.mouse_region_x, 0)[0]
+            bpy.context.scene.frame_current = frame
     
     def go_5_seconds_back_handler(self, event):
         if event.type in ["LEFT_CTRL", "RIGHT_CTRL"] and event.value == "PRESS":
             self.replay_sound(event, 5)
+            
+    def play_or_pause_animation_handler(self, event):
+        if event.type == "A" and event.alt and event.value == "PRESS":
+            bpy.ops.screen.animation_play()
             
     def is_mouse_over_side_bars(self, event):
         return self.is_mouse_inside(event, bpy.context.area) and \
             not self.is_mouse_inside(event, bpy.context.region)
             
     def insert_marker_handler(self, event, snap_frame):
+        if self.remove_markers: return
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.is_mouse_inside(event, bpy.context.region):
                 insert_markers([snap_frame])
-            
+                
+    def remove_markers_handler(self, event):
+        if self.remove_markers:
+            self.remove_rectangle.right = event.mouse_region_x    
+        if event.alt and event.type == "LEFTMOUSE":
+            if event.value == "PRESS":
+                self.remove_markers = True
+                self.remove_rectangle.left = event.mouse_region_x
+                self.remove_rectangle.right = event.mouse_region_x
+            if event.value == "RELEASE":
+                self.remove_markers = False
+                start_frame = self.get_frame_under_region_x(self.remove_rectangle.left)
+                end_frame = self.get_frame_under_region_x(self.remove_rectangle.right)
+                remove_markers(start_frame, end_frame)
     
     def get_snapping_result(self, event):
         mouse_x = event.mouse_region_x
@@ -529,19 +560,26 @@ class ManualMarkerInsertion(bpy.types.Operator):
         
         fcurve = get_active_fcurve()
         view = bpy.context.region.view2d
-        start_frame = round(view.region_to_view(mouse_x-20, 0)[0])
-        end_frame = round(view.region_to_view(mouse_x+20, 0)[0])
+        if event.shift:
+            snap_frame = round(self.get_frame_under_region_x(mouse_x))
+        else:
+            start_frame = round(self.get_frame_under_region_x(mouse_x-20))
+            end_frame = round(self.get_frame_under_region_x(mouse_x+20))
+            
+            snap_frame = 0
+            max_value = -1000000
+            for frame in range(start_frame, end_frame):
+                value = fcurve.evaluate(frame)
+                if value > max_value:
+                    snap_frame = frame
+                    max_value = value
         
-        max_frame = 0
-        max_value = -1000000
-        for frame in range(start_frame, end_frame):
-            value = fcurve.evaluate(frame)
-            if value > max_value:
-                max_frame = frame
-                max_value = value
-                
-        snap_location = view.view_to_region(max_frame, max_value)
-        return snap_location, max_frame
+        snap_value = fcurve.evaluate(snap_frame)        
+        snap_location = view.view_to_region(snap_frame, snap_value)
+        return snap_location, snap_frame
+    
+    def get_frame_under_region_x(self, x):
+        return bpy.context.region.view2d.region_to_view(x, 0)[0]
     
     def replay_sound(self, event, seconds):
         scene = bpy.context.scene
@@ -551,7 +589,10 @@ class ManualMarkerInsertion(bpy.types.Operator):
         return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
         
     def draw_callback_px(tmp, self, context):
-        self.draw_marker(self.snap_location)
+        if self.remove_markers:
+            self.remove_rectangle.draw()
+        else:
+            self.draw_marker(self.snap_location)
         self.draw_operator_help()
         
     def draw_marker(self, position):
@@ -579,21 +620,21 @@ def draw_dot(position, size, color):
     glVertex2f(*position)
     glEnd()     
     
-def draw_line(start, end, thickness, color):
-    glLineWidth(thickness)
-    glColor4f(*color)
-    glBegin(GL_LINES)
-    glVertex2f(*start)
-    glVertex2f(*end)
-    glEnd()   
-    glLineWidth(1)   
+
         
 def insert_markers(frames):
     scene = bpy.context.scene
     marked_frames = [marker.frame for marker in scene.timeline_markers]
     for frame in frames:
         if frame not in marked_frames:
-            scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)        
+            scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)  
+            
+def remove_markers(start_frame, end_frame):
+    start_frame, end_frame = sorted([start_frame, end_frame])
+    scene = bpy.context.scene
+    for marker in scene.timeline_markers:
+        if start_frame <= marker.frame <= end_frame:
+            scene.timeline_markers.remove(marker)                  
                         
 
 
@@ -852,7 +893,67 @@ def iter_all_fcurves():
         for fcurve in action.fcurves:
             yield fcurve
  
+class Line:
+    def __init__(self):
+        self.start = Vector((0, 0))
+        self.end = Vector((0, 0))
         
+    def set_start(self, event):
+        self.start = Vector((event.mouse_region_x, event.mouse_region_y))
+    def set_end(self, event):
+        self.end = Vector((event.mouse_region_x, event.mouse_region_y))
+        
+    def draw(self, thickness = 2, color = (0.2, 0.2, 0.2, 1.0)):
+        glLineWidth(thickness)
+        glColor4f(*color)
+        glBegin(GL_LINES)
+        glVertex2f(*self.start)
+        glVertex2f(*self.end)
+        glEnd()   
+        glLineWidth(1)   
+        
+class Rectangle:
+    def __init__(self):
+        self.top = 1000
+        self.bottom = 0
+        self.left = 0
+        self.right = 1000
+        self.color = (0.2, 0.2, 0.2, 1.0)
+        self.border_color = (0.0, 0.0, 0.0, 1.0)
+        self.border_thickness = 0
+        
+    def draw(self):
+        top_left = (self.left, self.top)
+        top_right = (self.right, self.top)
+        bottom_left = (self.left, self.bottom)
+        bottom_right = (self.right, self.bottom)
+        
+        glEnable(GL_BLEND)
+        glColor4f(*self.color)
+        glBegin(GL_POLYGON)
+        for x, y in [top_left, top_right, bottom_right, bottom_left]:
+            glVertex2f(x, y)
+        glEnd() 
+        
+        lines = [
+            (top_left, top_right), 
+            (top_right, bottom_right), 
+            (bottom_right, bottom_left), 
+            (bottom_left, top_left) ]
+        glBegin(GL_LINES)
+        for start, end in lines:
+            draw_line(start, end, self.border_thickness, self.border_color)
+        glEnd()
+        
+        
+def draw_line(start, end, thickness, color):
+    glLineWidth(thickness)
+    glColor4f(*color)
+    glBegin(GL_LINES)
+    glVertex2f(*start)
+    glVertex2f(*end)
+    glEnd()   
+    glLineWidth(1)           
         
         
 def register():
