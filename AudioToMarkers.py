@@ -115,6 +115,54 @@ class AudioManagerPanel(bpy.types.Panel):
             
         if settings.bake_info_text != "":
             layout.label(settings.bake_info_text)
+            
+          
+        layout.separator()
+          
+            
+        col = layout.column(align = False)
+        selected_fcurves_amount = len(get_active_fcurves())
+        row = col.row(align = True)
+        row.operator("graph.bake", text = "Bake")
+        row.operator("audio_to_markers.unbake_fcurves", text = "Unbake")
+        
+        subcol = col.column(align = True)
+        
+        source = CopyBakedFCurveData.get_source_fcurve(return_owner = True)
+        if source: copy_text = "Copy from {}.{}[{}]".format(source[0].name, source[1].data_path, source[1].array_index)   
+        else: copy_text = "No Copy Source Selected"
+        subcol.operator("audio_to_markers.copy_baked_fcurve_data", text = copy_text, icon = "COPYDOWN")   
+        
+        target_amount = PasteCopiedBakedFCurveData.get_target_amount()
+        if len(copied_keyframe_locations) == 0: paste_text = "No Copied Data"
+        elif target_amount == 0: paste_text = "No Target Selected"
+        elif target_amount == 1: paste_text = "Paste on 1 FCurve"
+        else: paste_text = "Paste on {} FCurves".format(target_amount)      
+        subcol.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = paste_text, icon = "PASTEDOWN")
+        
+        if settings.paste_keyframes_info_text != "":
+            layout.label(settings.paste_keyframes_info_text)
+            
+            
+        layout.separator()
+            
+            
+        col = layout.column(align = False)
+        row = col.row(align = True) 
+        row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
+        row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
+        
+        marker_amount = self.get_marker_amount_before_current_frame()
+        if len(context.scene.timeline_markers) > 0:
+            layout.label("Counter: {}".format(marker_amount))
+        
+    def get_marker_amount_before_current_frame(self):
+        amount = 0
+        scene = bpy.context.scene
+        for marker in scene.timeline_markers:
+            if marker.frame <= scene.frame_current:
+                amount += 1
+        return amount    
         
         
 class SelectMusicFile(bpy.types.Operator):
@@ -331,51 +379,8 @@ class RemoveBakeData(bpy.types.Operator):
 
 # Create Markers
 ################################################  
-        
-class FCurveToMakersPanel(bpy.types.Panel):
-    bl_idname = "audio_to_markers_panel"
-    bl_label = "Audio to Markers"
-    bl_space_type = "GRAPH_EDITOR"
-    bl_region_type = "UI"
-    
-    def draw(self, context):
-        layout = self.layout
-        settings = context.scene.audio_to_markers
-        
-        col = layout.column(align = False)
-        row = col.row(align = True) 
-        row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
-        row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
-        
-        marker_amount = self.get_marker_amount_before_current_frame()
-        if len(context.scene.timeline_markers) > 0:
-            layout.label("Counter: {}".format(marker_amount))
-        
-    def get_marker_amount_before_current_frame(self):
-        amount = 0
-        scene = bpy.context.scene
-        for marker in scene.timeline_markers:
-            if marker.frame <= scene.frame_current:
-                amount += 1
-        return amount       
+
      
-     
-class RemoveAllMarkers(bpy.types.Operator):
-    bl_idname = "audio_to_markers.remove_all_markers"
-    bl_label = "Remove all Markers"
-    bl_description = "Remove all markers in this scene"
-    bl_options = {"REGISTER"}
-    
-    @classmethod
-    def poll(cls, context):
-        return True
-    
-    def execute(self, context):
-        for marker in context.scene.timeline_markers:
-            context.scene.timeline_markers.remove(marker)
-        return {"FINISHED"}
-    
-    
 class ManualMarkerInsertion(bpy.types.Operator):
     bl_idname = "audio_to_markers.manual_marker_insertion"
     bl_label = "Manual Marker Insertion"
@@ -591,6 +596,23 @@ class ManualMarkerInsertion(bpy.types.Operator):
         for i, line in enumerate(text):
             blf.position(font_id, 50, top - i * 30, 0)
             blf.draw(font_id, line)
+            
+            
+class RemoveAllMarkers(bpy.types.Operator):
+    bl_idname = "audio_to_markers.remove_all_markers"
+    bl_label = "Remove all Markers"
+    bl_description = "Remove all markers in this scene"
+    bl_options = {"REGISTER"}
+    
+    @classmethod
+    def poll(cls, context):
+        return True
+    
+    def execute(self, context):
+        for marker in context.scene.timeline_markers:
+            context.scene.timeline_markers.remove(marker)
+        return {"FINISHED"}
+                
 
 def draw_dot(position, size, color):
     glColor4f(*color)
@@ -643,41 +665,7 @@ def highest_value_of_frame(fcurve, frame):
 
 # Baked FCurves
 ################################################                        
-        
-class BakedFCurvesPanel(bpy.types.Panel):
-    bl_idname = "baked_fcurves_panel"
-    bl_label = "Baked FCurves"
-    bl_space_type = "GRAPH_EDITOR"
-    bl_region_type = "UI"
-    
-    def draw(self, context):
-        layout = self.layout
-        settings = context.scene.audio_to_markers
-              
-        selected_fcurves_amount = len(get_active_fcurves())
-        row = layout.row(align = True)
-        row.operator("graph.bake", text = "Bake")
-        row.operator("audio_to_markers.unbake_fcurves", text = "Unbake")
-        
-        
-        col = layout.column(align = True)
-        
-        source = CopyBakedFCurveData.get_source_fcurve(return_owner = True)
-        if source: copy_text = "Copy from {}.{}[{}]".format(source[0].name, source[1].data_path, source[1].array_index)   
-        else: copy_text = "No Copy Source Selected"
-        col.operator("audio_to_markers.copy_baked_fcurve_data", text = copy_text, icon = "COPYDOWN")   
-        
-        target_amount = PasteCopiedBakedFCurveData.get_target_amount()
-        if len(copied_keyframe_locations) == 0: paste_text = "No Copied Data"
-        elif target_amount == 0: paste_text = "No Target Selected"
-        elif target_amount == 1: paste_text = "Paste on 1 FCurve"
-        else: paste_text = "Paste on {} FCurves".format(target_amount)
-        
-        col.operator("audio_to_markers.paste_copied_baked_fcurve_data", text = paste_text, icon = "PASTEDOWN")
-        
-        if settings.paste_keyframes_info_text != "":
-            layout.label(settings.paste_keyframes_info_text)
-        
+
                        
 class UnbakeFCurve(bpy.types.Operator):
     bl_idname = "audio_to_markers.unbake_fcurves"
