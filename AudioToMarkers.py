@@ -1,7 +1,11 @@
 import bpy
 import os.path
 import math
+import blf
 from bpy.props import *
+from bgl import (glBegin, glEnd, glColor4f, GL_POLYGON, glVertex2f, glEnable,
+    GL_BLEND, GL_POINTS, glPointSize, GL_LINES, glLineWidth)
+from mathutils import Vector    
 
 
 frequence_ranges = (
@@ -23,6 +27,7 @@ insertion_range_items = [(range, range, "") for range in insertion_ranges]
 
 
 copied_keyframe_locations = []
+manual_marker_insertion_active = False
 
 
 def apply_frequence_range(self, context):
@@ -351,6 +356,11 @@ class FCurveToMakersPanel(bpy.types.Panel):
         row.operator("audio_to_markers.insert_markers", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
         
+        layout.operator("audio_to_markers.manual_marker_insertion")
+        
+        if manual_marker_insertion_active:
+            layout.label("Finish by clicking somewhere")
+        
         marker_amount = self.get_marker_amount_before_current_frame()
         if len(context.scene.timeline_markers) > 0:
             layout.label("Counter: {}".format(marker_amount))
@@ -391,9 +401,9 @@ class InsertMarkers(bpy.types.Operator):
             end_frame = scene.frame_current
             
         
-        fcurve = self.get_active_fcurve()
+        fcurve = get_active_fcurve()
         if fcurve:
-            self.insert_beat_markers(scene, fcurve, start_frame, end_frame, context.space_data.cursor_position_y)
+            self.insert_beat_markers(fcurve, start_frame, end_frame, context.space_data.cursor_position_y)
         
         return {"FINISHED"}
     
@@ -411,17 +421,10 @@ class InsertMarkers(bpy.types.Operator):
                 break
             frame = marker.frame
         return frame    
-        
-    def get_active_fcurve(self):
-        for object in [bpy.context.selected_objects] + [bpy.context.scene]:
-            try: 
-                for fcurve in object.animation_data.action.fcurves:
-                    if fcurve.select: return fcurve
-            except: pass
     
-    def insert_beat_markers(self, scene, sound_curve, start, end, threshold):
+    def insert_beat_markers(self, sound_curve, start, end, threshold):
         frames = self.get_beat_frames(sound_curve, start, end, threshold)
-        self.insert_marker_at_frames(scene, frames)
+        insert_markers(frames)
         
     def get_beat_frames(self, sound_curve, start, end, threshold):
         frames = []
@@ -439,12 +442,6 @@ class InsertMarkers(bpy.types.Operator):
     def highest_value_of_frame(self, fcurve, frame):
         return max(fcurve.evaluate(frame-0.5), fcurve.evaluate(frame-0.25), fcurve.evaluate(frame), fcurve.evaluate(frame+0.25))
             
-    def insert_marker_at_frames(self, scene, frames):
-        marked_frames = [marker.frame for marker in scene.timeline_markers]
-        for frame in frames:
-            if frame not in marked_frames:
-                scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)
-            
      
 class RemoveAllMarkers(bpy.types.Operator):
     bl_idname = "audio_to_markers.remove_all_markers"
@@ -460,6 +457,122 @@ class RemoveAllMarkers(bpy.types.Operator):
         for marker in context.scene.timeline_markers:
             context.scene.timeline_markers.remove(marker)
         return {"FINISHED"}
+    
+    
+class ManualMarkerInsertion(bpy.types.Operator):
+    bl_idname = "audio_to_markers.manual_marker_insertion"
+    bl_label = "Manual Marker Insertion"
+    bl_description = ""
+    bl_options = {"REGISTER"}
+    
+    @classmethod
+    def poll(cls, context):
+        return True
+        
+    def invoke(self, context, event):
+        global manual_marker_insertion_active
+        manual_marker_insertion_active = True
+        args = (self, context)
+        self._handle = bpy.types.SpaceGraphEditor.draw_handler_add(self.draw_callback_px, args, "WINDOW", "POST_PIXEL")
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+    
+    def cancel(self, context):
+        global manual_marker_insertion_active
+        manual_marker_insertion_active = False
+        bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
+        
+    def modal(self, context, event):
+        context.area.tag_redraw()
+        self.fcurve = get_active_fcurve()
+        
+        mouse_pos = Vector((event.mouse_region_x, event.mouse_region_y))
+               
+        self.snap_location, snap_frame = self.get_snapping_result(event)
+        
+        if event.type in ["LEFT_CTRL", "RIGHT_CTRL"] and event.value == "PRESS":
+            self.set_current_frame_to_mouse(event)
+            
+        if event.type == "A" and event.alt and event.value == "PRESS":
+            bpy.ops.screen.animation_play()
+        
+        if self.is_mouse_inside(event, context.area) and not self.is_mouse_inside(event, context.region):
+            return {"PASS_THROUGH"}
+        
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self.is_mouse_inside(event, context.region):
+                insert_markers([snap_frame])
+            else:
+                self.cancel(context)
+                return {"FINISHED"}
+            
+        if event.type in {"RIGHTMOUSE", "ESC"}:
+            self.cancel(context)
+            return {"CANCELLED"}
+        
+        if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
+            return {"PASS_THROUGH"}
+            
+        return {"RUNNING_MODAL"}  
+    
+    def get_snapping_result(self, event):
+        mouse_x = event.mouse_region_x
+        mouse_y = event.mouse_region_y
+        
+        view = bpy.context.region.view2d
+        start_frame = round(view.region_to_view(mouse_x-20, 0)[0])
+        end_frame = round(view.region_to_view(mouse_x+20, 0)[0])
+        
+        max_frame = 0
+        max_value = -1000000
+        for frame in range(start_frame, end_frame):
+            value = self.fcurve.evaluate(frame)
+            if value > max_value:
+                max_frame = frame
+                max_value = value
+                
+        snap_location = view.view_to_region(max_frame, max_value)
+        return snap_location, max_frame
+    
+    def set_current_frame_to_mouse(self, event):
+        view = bpy.context.region.view2d
+        bpy.context.scene.frame_current = round(view.region_to_view(50, 0)[0])
+    
+    def is_mouse_inside(self, event, area):
+        return area.x < event.mouse_prev_x < area.x+area.width and area.y < event.mouse_prev_y < area.y+area.height
+        
+    def draw_callback_px(tmp, self, context):
+        self.draw_marker(self.snap_location)
+        self.draw_operator_help()
+        
+    def draw_marker(self, position):
+        draw_dot(position, 8.0, (0.4, 0.8, 0.2, 0.7))
+        
+    def draw_operator_help(self):
+        pass
+
+def draw_dot(position, size, color):
+    glColor4f(*color)
+    glPointSize(size)
+    glBegin(GL_POINTS)
+    glVertex2f(*position)
+    glEnd()     
+    
+def draw_line(start, end, thickness, color):
+    glLineWidth(thickness)
+    glColor4f(*color)
+    glBegin(GL_LINES)
+    glVertex2f(*start)
+    glVertex2f(*end)
+    glEnd()   
+    glLineWidth(1)   
+        
+def insert_markers(frames):
+    scene = bpy.context.scene
+    marked_frames = [marker.frame for marker in scene.timeline_markers]
+    for frame in frames:
+        if frame not in marked_frames:
+            scene.timeline_markers.new(name = "#{}".format(frame), frame = frame)        
                         
 
 
@@ -633,6 +746,11 @@ class PasteCopiedBakedFCurveData(bpy.types.Operator):
 
 # Helper
 ################################################ 
+
+def get_active_fcurve():
+    fcurves = get_active_fcurves()
+    if len(fcurves) > 0: return fcurves[0]
+    return None
 
 def get_active_fcurves(return_owner = False):
     fcurves_with_owner = []
