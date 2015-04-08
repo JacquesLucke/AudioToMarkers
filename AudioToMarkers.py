@@ -183,17 +183,6 @@ class AudioManagerPanel(bpy.types.Panel):
         row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
         
-        marker_amount = self.get_marker_amount_before_current_frame()
-        if len(context.scene.timeline_markers) > 0:
-            layout.label("Counter: {}".format(marker_amount))
-        
-    def get_marker_amount_before_current_frame(self):
-        amount = 0
-        scene = bpy.context.scene
-        for marker in scene.timeline_markers:
-            if marker.frame <= scene.frame_current:
-                amount += 1
-        return amount    
         
         
 class SelectMusicFile(bpy.types.Operator):
@@ -415,7 +404,7 @@ class RemoveBakeData(bpy.types.Operator):
      
 class ManualMarkerInsertion(bpy.types.Operator):
     bl_idname = "audio_to_markers.manual_marker_insertion"
-    bl_label = "Manual Marker Insertion"
+    bl_label = "Insert Markers"
     bl_description = ""
     bl_options = {"REGISTER"}
     
