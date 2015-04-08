@@ -437,13 +437,11 @@ class ManualMarkerInsertion(bpy.types.Operator):
         self.manager = EventManager()
         manager = self.manager
         
-        e1 = EventSettings("A", "PRESS", alt = True)
-        e2 = EventSettings("SPACE", "PRESS")
-        manager.add_events("PLAY_PAUSE", [e1, e2])
-                
-        e1 = EventSettings("LEFT_CTRL", "PRESS", ctrl = True)
-        e2 = EventSettings("RIGHT_CTRL", "PRESS", ctrl = True)
-        manager.add_events("SET_FRAME", [e1, e2])
+        e = EventSettings("A", "PRESS", alt = True)
+        manager.add_event("PLAY_PAUSE", e)
+        
+        e = EventSettings("SPACE", "PRESS")
+        manager.add_event("PLAY_PAUSE_RESET", e)       
         
         e = EventSettings("ESC", "PRESS")
         manager.add_event("FINISH", e)
@@ -454,7 +452,8 @@ class ManualMarkerInsertion(bpy.types.Operator):
         e1 = EventSettings("WHEELUPMOUSE", "ANY")
         e2 = EventSettings("WHEELDOWNMOUSE", "ANY")
         e3 = EventSettings("MIDDLEMOUSE", "ANY")
-        manager.add_events("PASS_THROUGH", [e1, e2, e3])
+        e4 = EventSettings("MIDDLEMOUSE", "ANY", ctrl = True)
+        manager.add_events("PASS_THROUGH", [e1, e2, e3, e4])
     
     def cancel(self, context):
         bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
@@ -481,7 +480,6 @@ class ManualMarkerInsertion(bpy.types.Operator):
         
         self.update_mouse_press_status(event)
                
-        self.set_frame_to_cursor_handler(event)
         self.play_or_pause_animation_handler(event)  
         self.insert_marker_handler(event, snap_frame)
         self.remove_markers_handler(event)
@@ -513,13 +511,13 @@ class ManualMarkerInsertion(bpy.types.Operator):
             if event.value == "RELEASE":
                 self.is_right_mouse_down = False  
             
-    def set_frame_to_cursor_handler(self, event):
-        if self.manager.get_name(event) == "SET_FRAME":
-            frame = bpy.context.region.view2d.region_to_view(event.mouse_region_x, 0)[0]
-            bpy.context.scene.frame_current = frame
-            
     def play_or_pause_animation_handler(self, event):
         if self.manager.get_name(event) == "PLAY_PAUSE":
+            bpy.ops.screen.animation_play()
+        if self.manager.get_name(event) == "PLAY_PAUSE_RESET":
+            if not bpy.context.screen.is_animation_playing:
+                frame = bpy.context.region.view2d.region_to_view(event.mouse_region_x, 0)[0]
+                bpy.context.scene.frame_current = frame
             bpy.ops.screen.animation_play()
             
     def is_mouse_over_side_bars(self, event):
@@ -612,7 +610,8 @@ class ManualMarkerInsertion(bpy.types.Operator):
         scene.frame_current -= scene.render.fps * seconds
     
     def is_mouse_inside(self, event, area):
-        return 0 <= event.mouse_region_x < area.width and 0 < event.mouse_region_y < area.height
+        padding = 5
+        return padding <= event.mouse_region_x < area.width-padding and padding < event.mouse_region_y < area.height-padding
         
     def draw_callback_px(tmp, self, context):
         if self.selection_type != "NONE":
@@ -644,7 +643,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         text = [
             "LMB (drag): Insert Markers",
             "RMB drag: Remove Markers",
-            "Space: Play/Pause",
+            "Space: Play from cursor/Pause",
             "CTRL: Set frame to cursor",
             "ESC: Finish operator" ]
         
