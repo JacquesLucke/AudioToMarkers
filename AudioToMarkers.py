@@ -645,8 +645,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             "LMB (drag): Insert Markers",
             "RMB drag: Remove Markers",
             "Space: Play/Pause",
-            "CTRL: Go 5 seconds back",
-            "ALT: Set frame to cursor",
+            "CTRL: Set frame to cursor",
             "ESC: Finish operator" ]
         
         background = Rectangle()
