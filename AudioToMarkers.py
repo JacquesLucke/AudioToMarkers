@@ -150,18 +150,7 @@ class AudioManagerPanel(bpy.types.Panel):
         row = col.row(align = True) 
         row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
-        
-        marker_amount = self.get_marker_amount_before_current_frame()
-        if len(context.scene.timeline_markers) > 0:
-            layout.label("Counter: {}".format(marker_amount))
-        
-    def get_marker_amount_before_current_frame(self):
-        amount = 0
-        scene = bpy.context.scene
-        for marker in scene.timeline_markers:
-            if marker.frame <= scene.frame_current:
-                amount += 1
-        return amount    
+         
         
         
 class SelectMusicFile(bpy.types.Operator):
@@ -471,7 +460,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
                 self.is_right_mouse_down = False  
             
     def set_frame_to_cursor_handler(self, event):
-        if event.type == "SPACE" and event.value == "PRESS":
+        if event.type == "LEFTMOUSE" and event.alt and event.value == "PRESS":
             frame = bpy.context.region.view2d.region_to_view(event.mouse_region_x, 0)[0]
             bpy.context.scene.frame_current = frame
     
@@ -480,7 +469,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             self.replay_sound(event, 5)
             
     def play_or_pause_animation_handler(self, event):
-        if event.type == "A" and event.alt and event.value == "PRESS":
+        if ((event.type == "SPACE" and not event.shift) or (event.type == "A" and event.alt)) and event.value == "PRESS":
             bpy.ops.screen.animation_play()
             
     def is_mouse_over_side_bars(self, event):
@@ -488,7 +477,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             not self.is_mouse_inside(event, bpy.context.region)
             
     def insert_marker_handler(self, event, snap_frame):
-        if self.selection_type != "NONE": return
+        if self.selection_type != "NONE" or event.alt or event.shift or event.ctrl: return
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.is_mouse_inside(event, bpy.context.region):
                 insert_markers([snap_frame])
@@ -506,7 +495,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             remove_markers(start_frame, end_frame)
                 
     def insert_multiple_markers_handler(self, event):
-        if self.selection_type == "REMOVE": return
+        if self.selection_type == "REMOVE" or event.alt or event.ctrl or event.shift: return
         if self.is_left_mouse_down and (get_mouse_position(event)-self.mouse_down_position).length > 14:
             self.selection_type = "INSERT"
             self.selection.left = self.mouse_down_position.x
@@ -589,6 +578,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             for location, enabled in self.insertion_preview_data:
                 self.draw_marker(location, enabled)
         self.draw_operator_help()
+        self.draw_marker_counter()
         
     def draw_marker(self, position, enabled = True):
         if enabled: 
@@ -601,19 +591,20 @@ class ManualMarkerInsertion(bpy.types.Operator):
         
     def draw_operator_help(self): 
         font_id = 0
+        marker_amount = self.get_marker_amount_before_current_frame()
         text = [
             "LMB (drag): Insert Markers",
             "RMB drag: Remove Markers",
-            "Space: Set Current Frame",
+            "Space: Play/Pause",
             "CTRL: Go 5 seconds back",
-            "ALT - A: Play/Pause",
+            "ALT: Set frame to cursor",
             "ESC: Finish operator" ]
         
         background = Rectangle()
         background.color = (0.0, 0.0, 0.0, 0.6)
         background.border_color = (0.0, 0.0, 0.0, 0.9)
         background.top = bpy.context.area.height
-        background.bottom = background.top - 50 - len(text)*30
+        background.bottom = background.top - 90 - len(text)*30
         background.left = 0
         background.right = 200
         
@@ -626,6 +617,17 @@ class ManualMarkerInsertion(bpy.types.Operator):
             blf.position(font_id, 20, top - i * 30, 0)
             blf.draw(font_id, line)
             
+        blf.position(font_id, 20, top - len(text) * 30 - 7, 0)
+        blf.size(font_id, 13, 80)
+        blf.draw(font_id, "Counter: {}".format(marker_amount))
+         
+    def get_marker_amount_before_current_frame(self):
+        amount = 0
+        scene = bpy.context.scene
+        for marker in scene.timeline_markers:
+            if marker.frame <= scene.frame_current:
+                amount += 1
+        return amount  
             
 class RemoveAllMarkers(bpy.types.Operator):
     bl_idname = "audio_to_markers.remove_all_markers"
