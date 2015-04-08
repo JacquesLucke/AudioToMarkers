@@ -21,7 +21,7 @@ Created by Jacques Lucke
 bl_info = {
     "name": "Audio to Markers",
     "description": "Work effectively with audio data in the graph editor.",
-    "author": "Your Name",
+    "author": "Jacques Lucke",
     "version": (0, 0, 1),
     "blender": (2, 74, 0),
     "location": "View3D",
@@ -653,7 +653,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
         background.top = bpy.context.area.height
         background.bottom = background.top - 90 - len(text)*30
         background.left = 0
-        background.right = 200
+        background.right = 220
         
         background.draw()
         
