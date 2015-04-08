@@ -150,7 +150,18 @@ class AudioManagerPanel(bpy.types.Panel):
         row = col.row(align = True) 
         row.operator("audio_to_markers.manual_marker_insertion", icon = "MARKER_HLT")    
         row.operator("audio_to_markers.remove_all_markers", icon = "X", text = "")
-         
+        
+        marker_amount = self.get_marker_amount_before_current_frame()
+        if len(context.scene.timeline_markers) > 0:
+            layout.label("Counter: {}".format(marker_amount))
+        
+    def get_marker_amount_before_current_frame(self):
+        amount = 0
+        scene = bpy.context.scene
+        for marker in scene.timeline_markers:
+            if marker.frame <= scene.frame_current:
+                amount += 1
+        return amount    
         
         
 class SelectMusicFile(bpy.types.Operator):
@@ -381,9 +392,8 @@ class ManualMarkerInsertion(bpy.types.Operator):
         return get_active_fcurve()
         
     def invoke(self, context, event):
-        global manual_marker_insertion_active
-        manual_marker_insertion_active = True
-        args = (self, context)
+        self.setup_event_manager()
+        
         self.mouse_down_position = get_mouse_position(event)
         self.is_left_mouse_down = False
         self.is_right_mouse_down = False
@@ -397,9 +407,33 @@ class ManualMarkerInsertion(bpy.types.Operator):
         self.selection.border_color = (0.8, 0.2, 0.1, 0.6)
         self.selection.border_thickness = 2
         
+        args = (self, context)
         self._handle = bpy.types.SpaceGraphEditor.draw_handler_add(self.draw_callback_px, args, "WINDOW", "POST_PIXEL")
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
+    
+    def setup_event_manager(self):
+        self.manager = EventManager()
+        manager = self.manager
+        
+        e1 = EventSettings("A", "PRESS", alt = True)
+        e2 = EventSettings("SPACE", "PRESS")
+        manager.add_events("PLAY_PAUSE", [e1, e2])
+                
+        e1 = EventSettings("LEFT_CTRL", "PRESS", ctrl = True)
+        e2 = EventSettings("RIGHT_CTRL", "PRESS", ctrl = True)
+        manager.add_events("SET_FRAME", [e1, e2])
+        
+        e = EventSettings("ESC", "PRESS")
+        manager.add_event("FINISH", e)
+        
+        e = EventSettings("SPACE", "PRESS", shift = True)
+        manager.add_event("FULLSCREEN", e)
+        
+        e1 = EventSettings("WHEELUPMOUSE", "ANY")
+        e2 = EventSettings("WHEELDOWNMOUSE", "ANY")
+        e3 = EventSettings("MIDDLEMOUSE", "ANY")
+        manager.add_events("PASS_THROUGH", [e1, e2, e3])
     
     def cancel(self, context):
         bpy.types.SpaceGraphEditor.draw_handler_remove(self._handle, "WINDOW")
@@ -411,12 +445,12 @@ class ManualMarkerInsertion(bpy.types.Operator):
         if not self.fcurve:
             self.cancel(context)
             return {"FINISHED"}
-        if event.type == "ESC": 
+        if self.manager.get_name(event) == "FINISH": 
             self.cancel(context)
             return {"FINISHED"}
         
         # pass through events
-        if event.type in ["WHEELUPMOUSE", "WHEELDOWNMOUSE", "MIDDLEMOUSE"]:
+        if self.manager.get_name(event) == "PASS_THROUGH":
             return {"PASS_THROUGH"}
        
         self.marked_frames = get_marked_frames()
@@ -426,14 +460,13 @@ class ManualMarkerInsertion(bpy.types.Operator):
         
         self.update_mouse_press_status(event)
                
-        self.go_5_seconds_back_handler(event)
         self.set_frame_to_cursor_handler(event)
         self.play_or_pause_animation_handler(event)  
         self.insert_marker_handler(event, snap_frame)
         self.remove_markers_handler(event)
         self.insert_multiple_markers_handler(event)
         
-        if event.type == "SPACE" and event.value == "PRESS" and event.shift and self.is_mouse_inside(event, context.area):
+        if self.manager.get_name(event) == "FULLSCREEN" and self.is_mouse_inside(event, context.area):
             bpy.ops.screen.screen_full_area()
             return {"RUNNING_MODAL"}
         
@@ -460,16 +493,12 @@ class ManualMarkerInsertion(bpy.types.Operator):
                 self.is_right_mouse_down = False  
             
     def set_frame_to_cursor_handler(self, event):
-        if event.type == "LEFTMOUSE" and event.alt and event.value == "PRESS":
+        if self.manager.get_name(event) == "SET_FRAME":
             frame = bpy.context.region.view2d.region_to_view(event.mouse_region_x, 0)[0]
             bpy.context.scene.frame_current = frame
-    
-    def go_5_seconds_back_handler(self, event):
-        if event.type in ["LEFT_CTRL", "RIGHT_CTRL"] and event.value == "PRESS":
-            self.replay_sound(event, 5)
             
     def play_or_pause_animation_handler(self, event):
-        if ((event.type == "SPACE" and not event.shift) or (event.type == "A" and event.alt)) and event.value == "PRESS":
+        if self.manager.get_name(event) == "PLAY_PAUSE":
             bpy.ops.screen.animation_play()
             
     def is_mouse_over_side_bars(self, event):
@@ -477,7 +506,7 @@ class ManualMarkerInsertion(bpy.types.Operator):
             not self.is_mouse_inside(event, bpy.context.region)
             
     def insert_marker_handler(self, event, snap_frame):
-        if self.selection_type != "NONE" or event.alt or event.shift or event.ctrl: return
+        if self.selection_type != "NONE" or event.alt or event.ctrl: return
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.is_mouse_inside(event, bpy.context.region):
                 insert_markers([snap_frame])
@@ -578,7 +607,6 @@ class ManualMarkerInsertion(bpy.types.Operator):
             for location, enabled in self.insertion_preview_data:
                 self.draw_marker(location, enabled)
         self.draw_operator_help()
-        self.draw_marker_counter()
         
     def draw_marker(self, position, enabled = True):
         if enabled: 
@@ -976,7 +1004,51 @@ def draw_line(start, end, thickness, color):
     glVertex2f(*start)
     glVertex2f(*end)
     glEnd()   
-    glLineWidth(1)           
+    glLineWidth(1)    
+    
+    
+from collections import defaultdict    
+class EventManager:
+    def __init__(self):
+        self.events = defaultdict(list)
+        
+    def add_event(self, name, event_settings):
+        self.events[name].append(event_settings)
+        
+    def add_events(self, name, event_settings):
+        self.events[name].extend(event_settings)
+        
+    # assumes that only one event can happen at the same time    
+    def get_name(self, event):
+        names = self.get_names(event)
+        if len(names) > 0:
+            return names[0]
+        return None
+
+    def get_names(self, event):
+        names = []
+        for name, event_settings in self.events.items():
+            for event_setting in event_settings:
+                if event_setting.fits_event(event):
+                    names.append(name)
+                    break
+        return names
+
+class EventSettings:
+    def __init__(self, event_type, event_value, shift = False, ctrl = False, alt = False):
+        self.type = event_type
+        self.value = event_value
+        self.shift = shift
+        self.ctrl = ctrl
+        self.alt = alt
+
+    def fits_event(self, event):
+        return event.type == self.type and \
+                (event.value == self.value or self.value == "ANY") and \
+                event.shift == self.shift and \
+                event.ctrl == self.ctrl and \
+                event.alt == self.alt 
+        
         
         
 def register():
